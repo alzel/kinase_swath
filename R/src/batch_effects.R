@@ -1,220 +1,305 @@
-#!/usr/bin/env Rscript
-
+rm(list=ls())
 source("./R/functions.R")
 source("./R/boot.R")
 
 plots.list = list()
 fun_name = "batch_effects"
 
-## ---- data_load ----
-load("./R/objects/peptides.data.RData") # clean.R::prepare_peptides()
-load("./R/objects/experiment.map.RData")# load.R::load_batch_map()
-load("./R/objects/dates_map.RData") # load.R::load_dates_map()
-load("./R/objects/sample.map.RData") # load.R::load_sample_map()
+load("./R/objects/peptides.peak_sums.trimmed.RData")
+load("./R/objects/protein_annotations.RData")
+load("./R/objects/peptides.cor.stats.top.RData")
+load("./R/objects/sample_exp.map.RData")
 
-## ---- linear batch fits ---- 
-###################################
-#plotting standart mix distributions
-###################################
+peptides.long = peptides.peak_sums.trimmed
+peptides.selected = tbl_df(droplevels(filter(peptides.cor.stats.top, top == "3")))
 
+peptides.long.selected = tbl_df(peptides.long[peptides.long$EG.StrippedSequence %in% peptides.selected$EG.StrippedSequence,])
+peptides.long.selected$ORF = peptides.selected$ORF[match(peptides.long.selected$EG.StrippedSequence, peptides.selected$EG.StrippedSequence)]
 
-peptides.data.mix = droplevels(peptides.data[grep(pattern="mix", x=peptides.data$sample, ignore.case=T),])
-peptides.data.mix$R.Label = factor(peptides.data.mix$R.Label)
+proteins.long = peptides.long.selected  %>% group_by(ORF, R.Label, batch_date, batch.exp.n, batch) %>% summarise(mean_signal = mean(T_signal, na.rm=T),
+                                                                                                                 sum_signal = log(sum(exp(T_signal), na.rm=T)))
 
-grouped.data <- group_by(peptides.data.mix, batch_date, sample, replicate, batch.exp.n, R.Label, EG.StrippedSequence)
-grouped_stats <- dplyr::summarise(grouped.data,
-                                  count = n(),
-                                  sum_FG.PeakArea = sum(F.PeakArea, na.rm=T))
+proteins.df = dcast(data=proteins.long, formula=ORF~R.Label+batch_date+batch.exp.n+batch, value.var="mean_signal")
 
-grouped_stats$sample_number = as.numeric(grouped_stats$R.Label)
-
-p = ggplot(grouped_stats, aes(y=log(sum_FG.PeakArea,base=10), colour=batch_date, x=batch.exp.n)) + 
-  geom_boxplot() +
-  theme(aspect.ratio = 1) +
-  ggtitle(paste("Grouped by", paste(attr(grouped.data,which="vars"), collapse=".")))
-
-plots.list = lappend(plots.list, p)
+proteins.matrix = as.matrix(proteins.df[,-1])
+rownames(proteins.matrix) = proteins.df$ORF
 
 
-peptides.mix.grouped_stats = grouped_stats
-batch.fits = ddply(peptides.mix.grouped_stats, .(EG.StrippedSequence),
-                   .fun = function(z) {
-                     v <<- z
-                     fit = lm(sum_FG.PeakArea~batch.exp.n, data=z)
-                     ret = data.frame(batch.exp.n = fit$xlevels,
-                                      batch_factor = names(fit$coefficients),
-                                      coefficients = fit$coefficients,
-                                      EG.StrippedSequence = unique(z$EG.StrippedSequence))
-                     return(ret)
-                     
-                   })
+pattern.p = "(.*?)_([0-9]+_[0-9]+_[0-9]+|[A-Za-z]?|[A-Za-z]+)_([A-Za-z0-9]+)_([A-Za-z0-9]+)$"
+matches = stringr::str_match_all(pattern=pattern.p, colnames(proteins.matrix))
 
+stopifnot(sum(lapply(matches,length)!=0) == ncol(proteins.matrix))
 
-peptides.grouped.mix.batches = merge(peptides.mix.grouped_stats, batch.fits, by=c("batch.exp.n", "EG.StrippedSequence"), all=T)
-peptides.grouped.mix.batches$corrected = with(peptides.grouped.mix.batches, sum_FG.PeakArea - coefficients)
-
-## ---- correcting for batch effects ----
-
-grouped.data <- group_by(peptides.data, batch_date, batch.exp.n, R.Label,sample, replicate, EG.StrippedSequence)
-peptides.grouped_stats <- dplyr::summarise(grouped.data,
-                                           count = n(),
-                                           sum_FG.PeakArea = sum(F.PeakArea, na.rm=T))
-
-peptides.grouped.batches = merge(peptides.grouped_stats, batch.fits, by=c("batch.exp.n", "EG.StrippedSequence"), all=T)
-peptides.grouped.batches$corrected = with(peptides.grouped.batches, sum_FG.PeakArea - coefficients)
-
-p = ggplot(peptides.grouped.batches, aes(y=log(corrected,base=10), colour=batch_date, x=batch.exp.n)) + 
-  geom_boxplot() +
-  theme(aspect.ratio = 1) +
-  ggtitle(paste("Grouped by", paste(attr(grouped.data, which="vars"), collapse=".")))
-
-plots.list = lappend(plots.list, p)
-
-peptides.grouped.batches = tbl_df(peptides.grouped.batches)
-peptides.grouped.batches = peptides.grouped.batches[which(!is.na(peptides.grouped.batches$corrected)),]
-peptides.grouped.batches[peptides.grouped.batches$batch.exp.n == 1, "corrected"] = with(peptides.grouped.batches[peptides.grouped.batches$batch.exp.n == 1,], coefficients)
-
-peptides.df.corrected = dcast(data=peptides.grouped.batches, formula=EG.StrippedSequence~sample+replicate+batch.exp.n, value.var="corrected")
-
-peptides.matrix.corrected = as.matrix(peptides.df.corrected[,-1])
-rownames(peptides.matrix.corrected) = peptides.df.corrected$EG.StrippedSequence
-
-batches.after = sub(x=colnames(peptides.matrix.corrected), pattern=".*?_([A-Za-z0-9]+)$", perl=T, replacement="\\1")
+pheno = data.frame(matrix(unlist(matches), ncol=length(matches[[1]]), byrow=T))
+colnames(pheno) = c("name", "R.Label", "batch_date", "batch.exp.n", "batch" )
+rownames(pheno) = colnames(proteins.matrix)
+pheno$ORF = droplevels(sample_exp.map$ORF[match(pheno$R.Label, sample_exp.map$SampleName)])
+pheno$ORF[pheno$R.Label == "KL_Try_027_c"] = "WT"
+pheno$batch.exp.n[pheno$R.Label == "KL_Try_027_c"] = 5
+pheno = droplevels(pheno[which(!is.na(pheno$ORF)),])
 
 
 
-## ---- making peptides tables ----
-
-grouped.data <- group_by(peptides.data, batch.exp.n, batch, batch_date, sample, replicate, EG.StrippedSequence)
-grouped_stats <- dplyr::summarise(grouped.data,
-                                  count = n(),
-                                  sum_FG.PeakArea = sum(F.PeakArea, na.rm=T))
-
-peptides.df = dcast(data=grouped_stats, formula=EG.StrippedSequence~sample+replicate+batch.exp.n+batch, value.var="sum_FG.PeakArea")
-
-peptides.matrix = as.matrix(peptides.df[,-1])
-rownames(peptides.matrix) = peptides.df$EG.StrippedSequence
-
-# experiment_map$sample = factor(sub(x=experiment_map$SampleName, pattern="^(KL_\\w+_\\w+)_\\w+", replacement="\\1", perl=T))
-# experiment_map$replicate = factor(sub(x=experiment_map$SampleName, pattern="^KL_\\w+_\\w+_(\\w+)", replacement="\\1", perl=T))
-
-batches = sub(x=colnames(peptides.matrix), pattern=".*?_([A-Za-z0-9]+)$", perl=T, replacement="\\1")
-sp_batches = sub(x=colnames(peptides.matrix), pattern=".*?_([A-Za-z0-9]+)$", perl=T, replacement="\\1")
-exp_batches = sub(x=colnames(peptides.matrix), pattern=".*?_([A-Za-z0-9]+)_[A-Za-z0-9]+$", perl=T, replacement="\\1")
-
-pheno = data.frame(batches = batches)
-rownames(pheno) = colnames(peptides.matrix)
+pheno$group = pheno$batch_date #grouping variable to estimate batch effects
 
 
-grouped.data <- group_by(peptides.data, batch_date, batch.exp.n, R.Label,sample, replicate, EG.StrippedSequence)
-peptides.grouped_stats <- dplyr::summarise(grouped.data,
-                                           count = n(),
-                                           sum_FG.PeakArea = sum(F.PeakArea, na.rm=T))
+tmp.factor_size = ddply(pheno, .(group, ORF), summarise, factor_size = length(ORF))
+tmp.factor_size$group.ORF = paste(tmp.factor_size$group, tmp.factor_size$ORF, sep=".")
 
-peptides.grouped.batches = merge(peptides.grouped_stats, batch.fits, by=c("batch.exp.n", "EG.StrippedSequence"), all=T)
-peptides.grouped.batches$corrected = with(peptides.grouped.batches, sum_FG.PeakArea - coefficients)
+pheno$group.ORF = paste(pheno$group, pheno$ORF, sep=".")
+pheno = droplevels(pheno[pheno$group.ORF %in% tmp.factor_size$group.ORF[tmp.factor_size$factor_size >=2],])
+pheno = droplevels(pheno[pheno$group %in% levels(droplevels(pheno$group[grep(pattern="mix", pheno$R.Label, ignore.case=T)])),])
 
-p = ggplot(peptides.grouped.batches, aes(y=log(corrected,base=10), colour=batch_date, x=batch.exp.n)) + 
-  geom_boxplot() +
-  theme(aspect.ratio = 1) +
-  ggtitle(paste("Grouped by", paste(attr(grouped.data, which="vars"), collapse=".")))
-plots.list = lappend(plots.list, p)
 
-peptides.grouped.batches = tbl_df(peptides.grouped.batches)
-peptides.grouped.batches = peptides.grouped.batches[which(!is.na(peptides.grouped.batches$corrected)),]
-peptides.grouped.batches[peptides.grouped.batches$batch.exp.n == 1, "corrected"] = with(peptides.grouped.batches[peptides.grouped.batches$batch.exp.n == 1,], coefficients)
+proteins.matrix.f = proteins.matrix[,match(rownames(pheno), colnames(proteins.matrix))]
 
-peptides.df.corrected = dcast(data=peptides.grouped.batches, formula=EG.StrippedSequence~sample+replicate+batch.exp.n, value.var="corrected")
+mod = model.matrix(~as.factor(ORF), data=pheno)
 
-peptides.matrix.corrected = as.matrix(peptides.df.corrected[,-1])
-rownames(peptides.matrix.corrected) = peptides.df.corrected$EG.StrippedSequence
+tmp.size_factors = DESeq::estimateSizeFactorsForMatrix(exp(proteins.matrix.f))
+proteins.matrix.f.deseq = log(exp(proteins.matrix.f)/tmp.size_factors)
 
-batches.after = sub(x=colnames(peptides.matrix.corrected), pattern=".*?_([A-Za-z0-9]+)$", perl=T, replacement="\\1")
+
+
+proteins.matrix.f.combat = ComBat(na.omit(proteins.matrix.f), batch=pheno$group, mod=mod, par.prior=FALSE)
+proteins.matrix.f.deseq.combat = ComBat(na.omit(proteins.matrix.f.deseq), batch=pheno$group, mod=mod, par.prior=FALSE)
+proteins.matrix.f.quantiles.combat = ComBat(normalizeQuantiles(na.omit(proteins.matrix.f.deseq)), batch=pheno$group, mod=mod, par.prior=FALSE)
 
 
 
 
-# ---- dendrogram with linear batch correction----
-par(pty="s")
-h = hclust(dist(scale(t(peptides.matrix.corrected))))
-plot(h, labels=batches.after, cex=0.66 )
-p = recordPlot()
-plots.list = lappend(plots.list, p)
-dev.off()
+file_name = "proteins.matrix.f.combat.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(proteins.matrix.f.combat,file=file_path)  
+
+file_name = "proteins.matrix.f.deseq.combat.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(proteins.matrix.f.deseq.combat,file=file_path)  
+
+file_name = "proteins.matrix.f.quantiles.combat.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(proteins.matrix.f.quantiles.combat,file=file_path)  
+
+## ---- using SVA to adjust for batch effects----
+if (FALSE) {
+  
+  #proteins.matrix.f.deseq = exp(proteins.matrix.f)
+  proteins.matrix = as.matrix(proteins.df[,-1])
+  rownames(proteins.matrix) = proteins.df$ORF
+    
+  pattern.p = "(.*?)_([0-9]+_[0-9]+_[0-9]+|[A-Za-z]?|[A-Za-z]+)_([A-Za-z0-9]+)_([A-Za-z0-9]+)$"
+  matches = stringr::str_match_all(pattern=pattern.p, colnames(proteins.matrix))
+  
+  stopifnot(sum(lapply(matches,length)!=0) == ncol(proteins.matrix))
+  
+  pheno.sva = data.frame(matrix(unlist(matches), ncol=length(matches[[1]]), byrow=T))
+  colnames(pheno.sva) = c("name", "R.Label", "batch_date", "batch.exp.n", "batch" )
+  rownames(pheno.sva) = colnames(proteins.matrix)
+  pheno.sva$ORF = droplevels(sample_exp.map$ORF[match(pheno.sva$R.Label, sample_exp.map$SampleName)])
+  pheno.sva$ORF[pheno$R.Label == "KL_Try_027_c"] = "WT"
+  pheno.sva$batch.exp.n[pheno.sva$R.Label == "KL_Try_027_c"] = 5
+  pheno.sva = droplevels(pheno.sva[which(!is.na(pheno.sva$ORF)),])
+    
+  pheno.sva = droplevels(pheno.sva[pheno.sva$ORF != "none",])
+  proteins.matrix.sva = proteins.matrix[,match(rownames(pheno.sva), colnames(proteins.matrix))]
+  proteins.matrix.f.sva = exp(proteins.matrix[,match(rownames(pheno.sva), colnames(proteins.matrix))])
+  
+  #proteins.matrix.f.sva = normalizeQuantiles(2^proteins.matrix[,match(rownames(pheno.sva), colnames(proteins.matrix))])
+  
+  tmp.size_factors = DESeq::estimateSizeFactorsForMatrix(proteins.matrix.f.sva)
+  proteins.matrix.f.sva.deseq = proteins.matrix.f.sva/tmp.size_factors
+    
+  dim(proteins.matrix.f.sva.deseq)
+  mod.sva = model.matrix(~ORF, data=pheno.sva)
+  mod0.sva = model.matrix(~1, data=pheno.sva)
+  
+  n.sv = num.sv(proteins.matrix.f.sva, mod=mod.sva)
+  n.sv.deseq = num.sv(proteins.matrix.f.sva.deseq, mod=mod.sva, method="leek")
+  
+  #svaobj <- sva.patched(dat=proteins.matrix.f.sva, mod=mod.sva, mod0=mod0.sva, method="irw", B = 10, n.sv=n.sv)
+  svaobj <- sva.patched(dat=proteins.matrix.f.sva.deseq, mod=mod.sva, mod0=mod0.sva, method="irw", B = 10, n.sv=n.sv.deseq)
+  svaX = model.matrix(~ORF + svaobj$sv, data=pheno.sva)
+  
+  fit = lmFit(proteins.matrix.f.sva, svaX)
+  
+  Batch<- fit$coef[,nlevels(pheno.sva$ORF):(nlevels(pheno.sva$ORF)+svaobj$n.sv)]%*%t(svaX[,nlevels(pheno.sva$ORF):(nlevels(pheno.sva$ORF)+svaobj$n.sv)])
+  
+  proteins.matrix.f.sva.deseq.adjusted = proteins.matrix.f.sva.deseq / Batch
+  proteins.matrix.f.sva.adjusted = proteins.matrix.f.sva - Batch
+  #proteins.matrix.f.sva.deseq.adjusted[proteins.matrix.f.sva.deseq.adjusted < 0] = runif(1,min=0, max=1)  
+  
+  proteins.matrix.f.sva.deseq.adjusted[proteins.matrix.f.sva.deseq.adjusted < 0] = NA
+  sum(is.na(proteins.matrix.f.sva.deseq.adjusted))
+  
+  proteins.matrix.f.sva.deseq.adjusted = log(proteins.matrix.f.sva.deseq.adjusted[complete.cases(proteins.matrix.f.sva.deseq.adjusted),])
+  
+  proteins.matrix.f.sva.adjusted[proteins.matrix.f.sva.adjusted < 0] = NA
+  sum(is.na(proteins.matrix.f.sva.adjusted))
+  proteins.matrix.f.sva.adjusted = log(proteins.matrix.f.sva.adjusted[complete.cases(proteins.matrix.f.sva.adjusted),])
+  
+  sum(is.na(proteins.matrix.f.sva.adjusted))
+  
+  
+  file_name = "proteins.matrix.f.sva.deseq.adjusted.RData"
+  file_path = paste(output_dir, file_name, sep="/")
+  save(proteins.matrix.f.sva.deseq.adjusted,file=file_path) 
+  
+  file_name = "proteins.matrix.f.sva.adjusted.RData"
+  file_path = paste(output_dir, file_name, sep="/")
+  save(proteins.matrix.f.sva.adjusted,file=file_path) 
+  
+}
 
 
-# ---- pca with bg correction----
 
+before = proteins.matrix.f
+after  = proteins.matrix.f.deseq.combat
+# pca
+message("plotting PCA results")
+
+file_name = "PCA_batch_effects.pdf"
+file_path = paste(figures_dir, file_name, sep="/")
+pdf(file_path, width=11.7+0.1*11.7, height=8.27+0.1*8.27)
 par(pty="s", mfrow=c(1,2))
-pca = prcomp(t(peptides.matrix), scale.=T)
+
+pca = prcomp(t(before), scale.=T)
 x_var = round(pca$sdev[1]^2/sum(pca$sdev^2)*100,2)
 y_var = round(pca$sdev[2]^2/sum(pca$sdev^2)*100,2)
 
-plot(pca$x[,1], pca$x[,2], col=batches, pch=16, main="Before adjustments for batch effects",
+plot(pca$x[,1], pca$x[,2], cex=1.5, cex.lab=1.5, col=pheno$batch_date, pch=16, main="Before adjustments for batch effects", 
      xlab=paste("PC1,", x_var), 
      ylab=paste("PC2,", y_var))
-text(pca$x[,1], pca$x[,2], labels=batches, cex=0.66)
+text(pca$x[,1], pca$x[,2], labels=pheno$batch.exp.n, cex=0.5)
 
-pca = prcomp(t(peptides.matrix.corrected), scale.=T)
+pca = prcomp(t(after), scale.=T)
+#pca = prcomp(t(proteins.matrix.f., scale.=T)
 x_var = round(pca$sdev[1]^2/sum(pca$sdev^2)*100,2)
 y_var = round(pca$sdev[2]^2/sum(pca$sdev^2)*100,2)
 
-plot(pca$x[,1], pca$x[,2], col=batches.after, pch=16, main="After adjustments for batch effects",
+plot(pca$x[,1], pca$x[,2], cex=1.5, cex.lab=1.5, col=pheno$batch_date, pch=16, main="After adjustments for batch effects",
      xlab=paste("PC1,", x_var), 
-     ylab=paste("PC2,", y_var),)
-text(pca$x[,1], pca$x[,2], labels=batches.after, cex=0.66)
+     ylab=paste("PC2,", y_var))
+text(pca$x[,1], pca$x[,2], labels=pheno$batch.exp.n, cex=0.5)
+
+
+# pca = prcomp(t(proteins.matrix.f.deseq.combat), scale.=T)
+# x_var = round(pca$sdev[1]^2/sum(pca$sdev^2)*100,2)
+# y_var = round(pca$sdev[2]^2/sum(pca$sdev^2)*100,2)
+# 
+# plot(pca$x[,1], pca$x[,2], col=pheno$batch_date, pch=16, main="After normalization and adjustments for batch effects",
+#      xlab=paste("PC1,", x_var), 
+#      ylab=paste("PC2,", y_var))
+# text(pca$x[,1], pca$x[,2], labels=pheno$batch.exp.n, cex=0.66)
+
+p = recordPlot()
+plots.list = lappend(plots.list, p)
+
+dev.off()
+
+# dendrograms 
+# file_name = "Clustering_batch_effects.png"
+# file_path = paste(figures_dir, file_name, sep="/")
+# png(file_path, width=297, height=210, units="mm", res=150)
+par(mfrow=c(2,1))
+h = hclust(dist(scale(t(proteins.matrix.f))))
+plot(h, labels=pheno$group, cex=0.5, main="Before batch correction")
+
+h = hclust(dist(scale(t(proteins.matrix.f.deseq.combat))))
+plot(h, labels=pheno$group, cex=0.5, main="After batch correction")
+
 p = recordPlot()
 plots.list = lappend(plots.list, p)
 dev.off()
 
-## ---- batch adjustments using sva ----
-# sub(x=colnames(peptides.matrix), pattern="(.*?)_[A-Za-z0-9]+$", replacement="\\1")
-# mutants = as.character(sample_map[match(colnames(protein.matrix), sample_map$SampleName), "ORF" ])
-# mutants[mutants == "none"] = "Mix"
-# 
-# 
-# pheno = data.frame(row.names=colnames(protein.matrix), 
-#                    batch  = factor(batches), 
-#                    mutant = factor(mutants))
-# 
-# 
-# mod = model.matrix(~as.factor(batches), data=pheno)
-# mod0 = model.matrix(~1,data=pheno)
-# 
-# n.sv = num.sv(peptides.matrix, mod, method="leek")
-# 
-# View(peptides.matrix)
-# svobj = sva(peptides.matrix, mod, mod0, n.sv=n.sv)
-# sum(is.na(peptides.matrix)
 
-# ---- Spectronaut batch effects ----
 
-load(file="./R/objects/sample_exp.map.RData")
-sample_exp.map[with(sample_exp.map, order(SampleName)),]
+#tidying batch corrected data
+message("Tidying up batch corrected data", appendLF=F)
 
-peptides.data.s = droplevels(unique(select(peptides.data, R.Label, batch)))
-peptides.data.s = peptides.data.s[with(peptides.data.s, order(R.Label)),]
+tmp.wide = data.frame(proteins.matrix.f.combat)
+tmp.wide$ORF = rownames(proteins.matrix.f.combat)
+proteins.deseq.combat.long = melt(tmp.wide, id.vars="ORF")
+names(proteins.deseq.combat.long) = c("ORF", "variable", "value")
+
+proteins.deseq.combat.long = proteins.deseq.combat.long %>% extract(variable, 
+                                                                    into=c("R.Label", "batch_date", "batch.exp.n", "batch"), 
+                                                                    regex="(.*?)_([0-9]+_[0-9]+_[0-9]+|[A-Za-z]?|[A-Za-z]+)_([A-Za-z0-9]+)_([A-Za-z0-9]+)$")
+
+col_names <- names(proteins.deseq.combat.long)[names(proteins.deseq.combat.long) != "value"]
+proteins.deseq.combat.long[,col_names] <- lapply(proteins.deseq.combat.long[,col_names] , factor)
+proteins.deseq.combat.long = tbl_df(proteins.deseq.combat.long)
+
+file_name = "proteins.deseq.combat.long.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(proteins.deseq.combat.long, file=file_path)  
+message("...Done")
+
+
+
+tmp.wide = data.frame(proteins.matrix.f.combat)
+tmp.wide$ORF = rownames(proteins.matrix.f.combat)
+proteins.combat.long = melt(tmp.wide, id.vars="ORF")
+names(proteins.combat.long) = c("ORF", "variable", "value")
+
+proteins.combat.long = proteins.combat.long %>% extract(variable, 
+                                                        into=c("R.Label", "batch_date", "batch.exp.n", "batch"), 
+                                                        regex="(.*?)_([0-9]+_[0-9]+_[0-9]+|[A-Za-z]?|[A-Za-z]+)_([A-Za-z0-9]+)_([A-Za-z0-9]+)$")
+
+col_names <- names(proteins.combat.long)[names(proteins.combat.long) != "value"]
+proteins.combat.long[,col_names] <- lapply(proteins.combat.long[,col_names] , factor)
+proteins.combat.long = tbl_df(proteins.combat.long)
+
+file_name = "proteins.combat.long.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(proteins.combat.long, file=file_path)  
+message("...Done")
+
+
+tmp.wide = data.frame(proteins.matrix.f)
+tmp.wide$ORF = rownames(proteins.matrix.f)
+proteins.long = melt(tmp.wide, id.vars="ORF")
+names(proteins.long) = c("ORF", "variable", "value")
+
+proteins.long = proteins.long %>% extract(variable, 
+                                          into=c("R.Label", "batch_date", "batch.exp.n", "batch"), 
+                                          regex="(.*?)_([0-9]+_[0-9]+_[0-9]+|[A-Za-z]?|[A-Za-z]+)_([A-Za-z0-9]+)_([A-Za-z0-9]+)$")
+
+col_names <- names(proteins.long)[names(proteins.long) != "value"]
+proteins.long[,col_names] <- lapply(proteins.long[,col_names] , factor)
+proteins.long = tbl_df(proteins.long)
+
+file_name = "proteins.long.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(proteins.long, file=file_path)  
+message("...Done")
+
+
 
 set.seed(123)
-to_select = sample(peptides.data.s[duplicated(peptides.data.s$R.Label),c("R.Label")], 20)
+toSelect = droplevels(sample(size=20 , x=unique(proteins.deseq.combat.long$R.Label)))
+toPlot = proteins.deseq.combat.long[proteins.deseq.combat.long$R.Label %in% toSelect,]
 
-peptides.data.f = droplevels(peptides.data[peptides.data$R.Label %in% to_select,])
-
-#peptides.data.f = droplevels(filter(peptides.data, R.Label == "KL_St_Mix_19" | R.Label == "KL_St_Mix_17"))
-
-peptides.data.f$R.Label = factor(peptides.data.f$R.Label)
-p = ggplot(peptides.data.f, aes(x=log(FG.TotalPeakArea), colour=batch)) + 
-  geom_density() +
-  facet_wrap(~R.Label, scales="free") + 
-  theme(aspect.ratio = 1)
-
-file_name = "spectronaut.effects.pdf"
-file_path = paste(figures_dir, file_name, sep="/")
-ggsave(filename=file_path, width=11.69+0.1*11.69, height=8.27+0.1*8.27)
+p = ggplot(toPlot, aes(x=value)) +
+  geom_histogram(aes(y=..density..), 
+                 breaks=seq(1,10, 0.2),
+                 colour="black", 
+                 fill="white") +
+  stat_function(fun=dnorm, args=list(mean=mean(toPlot$value), sd=sd(toPlot$value)))
 plots.list = lappend(plots.list, p)
+
+p = p + facet_wrap(~R.Label, scales="free")
+plots.list = lappend(plots.list, p)
+
+p1 = ggplot(proteins.long, aes(x=batch.exp.n, y=value, fill=batch.exp.n)) +
+  geom_boxplot() +
+  theme(legend.position="none")
+
+p3 = ggplot(proteins.deseq.combat.long, aes(x=batch.exp.n, y=value, fill=batch.exp.n)) +
+  geom_boxplot() + 
+  theme(legend.position="top")
+
+g = arrangeGrob(p1, p3)
+plots.list = lappend(plots.list, g)
 
 file_name = paste(fun_name, "report.pdf", sep=".")
 file_path = paste(figures_dir, file_name, sep="/")
 save_plots(plots.list, filename=file_path, type="l") 
-
-

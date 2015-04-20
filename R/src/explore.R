@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-
+rm(list=ls())
 source("./R/functions.R")
 source("./R/boot.R")
 
@@ -11,41 +11,53 @@ load("./R/objects/peptides.data.RData") # clean.R::prepare_peptides()
 load("./R/objects/experiment.map.RData")# load.R::load_batch_map()
 load("./R/objects/dates_map.RData") # load.R::load_dates_map()
 load("./R/objects/sample.map.RData") # load.R::load_sample_map()
-#View(peptides.data)
+load("./R/objects/sample_exp.map.RData")
 
+
+#View(peptides.data)
+str(peptides.data)
 peptides.data$batch.exp.n = factor(as.numeric(peptides.data$batch.exp))
 
+
 ##batch/date signal statistics
-grouped.data <- group_by(peptides.data, batch.exp.n, batch_date, R.Label)
-grouped_stats <- dplyr::summarise(grouped.data,
-                                  sum_FG.TotalPeakArea = sum(FG.TotalPeakArea, na.rm=T),
-                                  mean_FG.TotalPeakArea = mean(FG.TotalPeakArea, na.rm=T))
+toPlot <- group_by(peptides.data, batch.exp.n, batch_date, R.Label) %>% 
+                summarise(sum_FG.TotalPeakArea = sum(FG.TotalPeakArea, na.rm=T))
 
-grouped_stats <- dplyr::summarise(grouped.data,
-                                  sum_FG.TotalPeakArea = sum(FG.TotalPeakArea, na.rm=T),
-                                  mean_FG.TotalPeakArea = mean(FG.TotalPeakArea, na.rm=T))
-
-p = ggplot(grouped_stats, aes(x=batch.exp.n, y = mean_FG.TotalPeakArea, colour=batch_date)) + 
+p = ggplot(toPlot, aes(x=batch.exp.n, y = sum_FG.TotalPeakArea, fill=batch_date)) + 
           geom_boxplot() + 
           theme(aspect.ratio = 1) +
-          ggtitle(paste("Grouped by", paste(attr(grouped.data,which="vars"), collapse=".")))
+          #ggtitle(paste("Grouped by", paste(attr(toPlot,which="vars"), collapse=".")))+
+          xlab("Acquisition batch") +
+          ylab("Total area of peaks per sample") +
+          scale_colour_brewer(palette="Set1") +
+          theme(axis.title=element_text(size=20))
 
 plots.list = lappend(plots.list, p)
 
-grouped_stats$sample_number = 1:nrow(grouped_stats)
-p = ggplot(grouped_stats, aes(x=sample_number, y = mean_FG.TotalPeakArea, col=batch_date)) + 
+p = ggplot(toPlot, aes(x= sum_FG.TotalPeakArea)) + 
+  geom_histogram(colour = "black", fill = "white", binwidth = 10^6) + 
+  theme(aspect.ratio = 1) +
+  #ggtitle(paste("Grouped by", paste(attr(toPlot,which="vars"), collapse=".")))
+  xlab("Total area of peaks per sample") +
+  theme(axis.title=element_text(size=20))
+plots.list = lappend(plots.list, p)
+
+
+toPlot$sample_number = 1:nrow(toPlot)
+p = ggplot(toPlot, aes(x=sample_number, y = sum_FG.TotalPeakArea, col=batch_date)) + 
   geom_point() + 
   theme(aspect.ratio = 1) +
-  ggtitle(paste("Grouped by", paste(attr(grouped.data,which="vars"), collapse=".")))
-
+  #ggtitle(paste("Grouped by", paste(attr(toPlot,which="vars"), collapse="."))) +
+  xlab("Acquisition batch") +
+  ylab("Total area of peaks per sample") +
+  theme(axis.title=element_text(size=20))
 plots.list = lappend(plots.list, p)
 
-p = ggplot(grouped_stats, aes(x=sample_number, y = mean_FG.TotalPeakArea, col=batch.exp.n)) + 
+p = ggplot(toPlot, aes(x=sample_number, y = sum_FG.TotalPeakArea, col=batch.exp.n)) + 
   geom_boxplot() +
   geom_point() + 
   theme(aspect.ratio = 1) +
-  ggtitle(paste("Grouped by", paste(attr(grouped.data,which="vars"), collapse=".")))
-
+  ggtitle(paste("Grouped by", paste(attr(toPlot,which="vars"), collapse=".")))
 plots.list = lappend(plots.list, p)
 
 #PCA of peptides and batch effects
