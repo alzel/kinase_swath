@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# getting peaks ratios based on all vs all graphs
+# peptide peak changes based on minimally chagned peptide 
 
 rm(list=ls())
 source("./R/functions.R")
@@ -19,14 +19,17 @@ load("./R/objects/peak_sums.ratios.RData")
 peptides.dataset = tbl_df(peptides.peak_sums.trimmed)
 protein_annot.selected = droplevels(filter(protein_annotations, specificity == "unique"))
 
-peptide2orfs = dplyr::select(protein_annot.selected, strippedSequence, SystName)
+
+distinct(peptides.dataset, R.Label, EG.StrippedSequence, batch_date)
+peptide2orfs = droplevels(dplyr::select(protein_annot.selected, strippedSequence, SystName))
 names(peptide2orfs) = c("EG.StrippedSequence", "ORF")
 
-peptides.dataset.f = droplevels(peptides.dataset[peptides.dataset$EG.StrippedSequence %in% protein_annot.selected$strippedSequence,])
+peptides.dataset.f = droplevels(peptides.dataset[peptides.dataset$EG.StrippedSequence %in% peptide2orfs$EG.StrippedSequence,])
 
-peak_sums = peptides.dataset.f
-peak_sums.f = tbl_df(droplevels(merge(peak_sums, peptide2orfs, by="EG.StrippedSequence")))
-peak_sums.f = peak_sums.f %>% distinct(R.Label, batch.exp.n, EG.StrippedSequence) %>% arrange(R.Label, ORF, EG.StrippedSequence)
+peak_sums.f = peptides.dataset.f
+peak_sums.f$ORF = peptide2orfs$ORF[match(peptides.dataset.f$EG.StrippedSequence, peptide2orfs$EG.StrippedSequence)]
+peak_sums.f = droplevels(peak_sums.f)
+peak_sums.f = peak_sums.f %>% distinct(R.Label, EG.StrippedSequence) %>% arrange(R.Label, ORF, EG.StrippedSequence)
 
 peptides.wide = dcast(data=peak_sums.f, formula=ORF+EG.StrippedSequence~R.Label+batch.exp.n, value.var="T_signal")
 peptides.matrix = as.matrix(peptides.wide[,-c(1,2)])
@@ -65,23 +68,21 @@ eb = eBayes(c.fit)
 
 folds = rowFolds(data=exp(matrix), groups=pheno$KO, reference=reference)
 folds = log(folds, 2)
-
 folds_tmp = melt(as.matrix(folds), id.vars="row.names")
+names(folds_tmp) = c("ORF.peptide", "contrasts", "logFC")
 
-#merging results
-#folds_tmp = melt(eb$coefficients, id.vars="row.names")
-#folds_tmp$contrasts = factor(paste(folds_tmp$contrasts, "-", reference, sep=""))
+folds_tmp$contrasts = factor(paste(folds_tmp$contrasts, "-", reference, sep=""))
+
 pvals_tmp = melt(eb$p.value, id.vars="row.names")
 
-
-names(folds_tmp) = c("ORF.peptide", "contrasts", "logFC")
 names(pvals_tmp) = c("ORF.peptide", "contrasts", "p.value")
 
 folds_tmp$contrasts = factor(folds_tmp$contrasts)
 pvals_tmp$contrasts = factor(pvals_tmp$contrasts)
 
+#merging results
 
-peptides.FC = merge(folds_tmp, pvals_tmp, all=T,
+peptides.FC = merge(folds_tmp, pvals_tmp, ,
                     by=c("ORF.peptide", "contrasts"))
 
 peptides.FC = peptides.FC %>% extract(ORF.peptide, 
@@ -95,11 +96,7 @@ peptides.FC = tbl_df(peptides.FC)
 
 
 ### making relative to reference
-
-peptides.long = tbl_df(melt(log(exp(peptides.matrix.f),2), id.vars="row.names"))
-
-
-
+peptides.long = tbl_df(melt(log(exp(matrix),2), id.vars="row.names"))
 names(peptides.long) = c("ORF.peptide", "variable", "value")
 
 peptides.long = peptides.long %>% extract(variable, 
@@ -117,7 +114,6 @@ peptides.long$KO = sample_exp.map$ORF[match(peptides.long$R.Label, sample_exp.ma
 # 
 # peptides.long = peptides.long.tmp
 
-
 ref_constant = filter(peptides.long, KO == "WT")
 ref_constant.summary = ref_constant %>% group_by(ORF,peptide) %>% summarise(mean.value.ref = log(mean(2^(value), na.rm=T),2) )
 
@@ -133,6 +129,8 @@ peptides.long = peptides.long %>% mutate(peptide.change = value - mean.value.ref
 peptides.merged = tbl_df(merge(peptides.long, peptides.FC.min, by = c("KO", "ORF")))
 peptides.merged = peptides.merged %>% group_by(KO, R.Label, ORF) %>% mutate(ratio = 2^(peptide.change - min.logFC[1]))
 
+tmp = dcast(peptides.merged, formula=ORF+peptide~R.Label, value.var="ratio")
+stopifnot(sum(is.na(tmp)) == 0)
 
 # u.test = filter(peptides.merged, (KO == "YAL017W" ) & ORF == "YAL003W" & peptide == "AFQSAYPEFSR")
 # u.wt = filter(peptides.merged, (KO == "WT" ) & ORF == "YAL003W" & peptide == "AFQSAYPEFSR")
@@ -143,17 +141,19 @@ peptides.merged = peptides.merged %>% group_by(KO, R.Label, ORF) %>% mutate(rati
 # log(mean(2^(u.test$value)),2) - log(mean(2^u.wt$value),2)
 
 
+
 peptides.ratios = ddply(peptides.merged, .(KO, ORF), 
       .fun=function(z) {
         v <<- z
         z = v
+        #z = filter(peptides.merged, KO == "YAR018C", ORF=="YAL003W" )
         
         peptides = unique(z$peptide)
         if (length(peptides) == 1) {
           return(data.frame(peptide=peptides, ratio.FC = 1, p.value=NA, reference=peptides))
         }
         
-        peptides = peptides[peptides != z$min.peptide[1]]
+        #peptides = peptides[peptides != z$min.peptide[1]]
         res = matrix(ncol=2, nrow=length(peptides))
         rownames(res) = peptides
         
@@ -171,10 +171,55 @@ peptides.ratios = ddply(peptides.merged, .(KO, ORF),
         ret$peptide = rownames(ret)
         ret$reference = z$min.peptide[1]
         names(ret) = c("ratio.FC","p.value", "peptide","reference")  
+        
         return(ret[,c(3,1,2,4)])
       })
 
+stopifnot(sum(is.na(dcast(peptides.ratios, formula=peptide~KO, value.var="ratio.FC"))) == 0)
+peptides.ratios$padj = p.adjust(peptides.ratios$p.value, method="BH")
 
+file_name = "peptides.ratios.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(peptides.ratios, file=file_path)
+
+
+## -- robust peptides ----
+padj_thr = 0.1
+par(pty="s")
+peptides.ratios.stats = peptides.ratios %>% group_by(ORF, peptide) %>% summarise(count = sum(padj > padj_thr | is.na(p.value)))
+
+selected.peptides = peptides.ratios.stats$peptide[peptides.ratios.stats$count >= median(peptides.ratios.stats$count)]
+
+protein.stats.before = peak_sums.f %>% group_by(ORF) %>% summarise(pep.count = length(unique(EG.StrippedSequence)))
+protein.stats.before$category = factor(ifelse(protein.stats.before$pep.count >=5,">5", protein.stats.before$pep.count))
+
+protein.stats.after = peptides.ratios.stats %>% filter(count >= median(peptides.ratios.stats$count)) %>% group_by(ORF) %>% summarize(pep.count = n())                                                                                             
+protein.stats.after$category = factor(with(protein.stats.after, ifelse(pep.count >=5 ,">5", pep.count)))
+
+protein.stats.before$type = "before"
+protein.stats.after$type = "after"
+protein.stats = rbind(protein.stats.before, protein.stats.after)
+protein.stats$type = factor(protein.stats$type, levels =c("before", "after"))
+
+      
+p1 = ggplot(data=protein.stats, aes(x=type, fill=factor(category))) +
+    geom_bar() +
+    ggtitle("Robust peptides")
+
+p2 = ggplot(peptides.ratios.stats, aes(x=count)) +
+       geom_histogram() +
+       geom_vline(xintercept=median(peptides.ratios.stats$count), linetype=2, colour="red")
+
+g = arrangeGrob(p2, p1)
+plots.list = lappend(plots.list, g)
+
+file_name = "peptides.ratios.stats.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(peptides.ratios.stats, file=file_path)
+
+
+
+## -- PTM enrichments ---- 
 Ph = c("S","T","Y")
 Ac_Ub_SM = c("K")
 Me = c("K","R","C")
@@ -183,7 +228,7 @@ NG = c("N")
 any.ptm = unique(c(Ph, Ac_Ub_SM, Me, Ca, NG))
 
 peptides.ratios$peptide = as.character(peptides.ratios$peptide)
-peptide.ratios.PTM = peptides.ratios %>% group_by(KO, ORF, peptide) %>% mutate(Ph = sum(unlist(strsplit(peptide, "")) %in% Ph),
+peptides.ratios.PTM = peptides.ratios %>% group_by(KO, ORF, peptide) %>% mutate(Ph = sum(unlist(strsplit(peptide, "")) %in% Ph),
                                                                                Ac_Ub_SM = sum(unlist(strsplit(peptide, "")) %in% Ac_Ub_SM),
                                                                                Me = sum(unlist(strsplit(peptide, "")) %in% Me),
                                                                                Ca = sum(unlist(strsplit(peptide, "")) %in% Ca),
@@ -191,40 +236,15 @@ peptide.ratios.PTM = peptides.ratios %>% group_by(KO, ORF, peptide) %>% mutate(P
                                                                                any.ptm = sum(unlist(strsplit(peptide, "")) %in% any.ptm))
 
 
-Ph = c("S","T","Y")
-Ac_Ub_SM = c("K")
-Me = c("K","R","C")
-Ca = c("E")
-NG = c("N")
-all = unique(c(Ph, Ac_Ub_SM, Me, Ca, NG))
 
-# peptides.ratios$peptide = factor(peptides.ratios$peptide)
-# peptides.ratios$ORF = factor(peptides.ratios$ORF)
-# peptides.ratios$KO = factor(peptides.ratios$KO)
-# peptides.ratios.PTM = ddply(peptides.ratios, .(KO, ORF, peptide),
-#                            .fun = function(z) {
-#                              v <<- z
-#                              z = v
-#                              
-#                              peptide = unlist(strsplit(as.character(z$peptide), ""))
-#                              
-#                              ret = data.frame(Ph = sum(peptide %in% Ph),
-#                                         Ac_Ub_SM = sum(peptide %in% Ac_Ub_SM),
-#                                         Me = sum(peptide %in% Me),
-#                                         Ca = sum(peptide %in% Ca),
-#                                         NG = sum(peptide %in% NG),
-#                                         any.ptm = sum(peptide %in% all))
-#                              return(ret)
-#                            })
-
-
-
-peptide.ratios.PTM$padj = p.adjust(peptide.ratios.PTM$p.value, method="BH")
+peptides.ratios.PTM.f = filter(peptides.ratios.PTM, ratio.FC != 1 , p.value != 1)
+peptides.ratios.PTM.f$padj = p.adjust(peptides.ratios.PTM.f$p.value, method="BH")
 
 
 ## -- PTM enrichment ----
 padj_thr = 0.05
-toPlot = filter(peptide.ratios.PTM, is.na(p.value) == F)
+toPlot = filter(peptides.ratios.PTM.f, is.na(p.value) == F)
+
 # toPlot$changed = factor(ifelse(toPlot$padj <= padj_thr & abs(log(toPlot$ratio.FC,2)) >= 1 , 1, 0))
 # toPlot$hasPTM = factor(ifelse(toPlot$Ph <=1, 1, 0))
 
@@ -235,6 +255,7 @@ c = sum(ifelse(toPlot$padj > padj_thr & toPlot$Ph > 0, 1, 0)) #not changed and h
 d = sum(ifelse(toPlot$padj > padj_thr & toPlot$Ph == 0, 1, 0)) #not changed and no PTM
 
 PTM.check = matrix(c(a,b,c,d), ncol=2, byrow=T)
+
 fisher.test(PTM.check, alternative="greater")
 
 
@@ -252,24 +273,21 @@ p = ggplot(filter(toPlot.long, padj <= padj_thr), aes(x=value, y=log(ratio.FC,2)
 plots.list = lappend(plots.list, p)
 
 
-
 tmp = dcast(data=peptides.ratios, formula=ORF+peptide~KO, value.var="ratio.FC")
 tmp[is.na(tmp)] = 1
 
 annotation = data.frame(batch_date = sample_exp.map$date[match(colnames(tmp)[-c(1,2)], sample_exp.map$ORF)])
 rownames(annotation) = colnames(tmp)[-c(1,2)]
 
-col_breaks = c(-5,-4,-3,-2,-1,1,2,3,4,5)
-aheatmap(log(tmp[,-c(1,2)]),
-         annCol=annotation,
-         color = paste("-RdBu", length(col_breaks)-1, sep=":"),
-         breaks = col_breaks)
+col_breaks = c(-4,-3,-2,-1,-0.5,0.5,1,2,3,4)
+pheatmap(log(tmp[,-c(1,2)]), show_rownames=F, 
+         breaks=col_breaks, 
+         color=brewer.pal(n=length(col_breaks)-1, "PuOr"),
+         annotation=annotation) 
 
+p = recordPlot()
 plots.list = lappend(plots.list, p)
 
 file_name = paste(fun_name, "report.pdf", sep=".")
 file_path = paste(figures_dir, file_name, sep="/")
 save_plots(plots.list, filename=file_path, type="l")
-
-
-

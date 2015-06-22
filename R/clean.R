@@ -9,32 +9,45 @@ create.peptides = function() {
   load("./R/objects/data.frame.peptides.raw.RData") # load.R::load_proteome()
   load("./R/objects/dates_map.RData")               # load.R::
   load("./R/objects/experiment.map.RData")
+  
   peptides.raw <- tbl_df(dataset.peptides.raw)  
   peptides.filtered = peptides.raw
   stopifnot(identical(peptides.filtered$R.FileName, peptides.filtered$R.Label))
-  str(peptides.filtered)
+  
+  
   
   peptides.filtered$sample = factor(sub(x=peptides.filtered$R.Label, pattern="^(KL_\\w+_\\w+)_\\w+", replacement="\\1", perl=T))
   peptides.filtered$replicate = factor(sub(x=peptides.filtered$R.Label, pattern="^KL_\\w+_\\w+_(\\w+)", replacement="\\1", perl=T))
-  #peptides.filtered$fragment = with(peptides.filtered,  paste(F.FrgType, F.FrgNum,  sep="."))
+  
+  peptides.filtered$fragment = factor(with(peptides.filtered,  paste(F.FrgType, F.FrgNum, F.FrgLossType, sep=".")))
   
 #   peptides.data = select(peptides.filtered, batch, sample, replicate, R.Label, 
 #                          EG.Label, EG.StrippedSequence, EG.Qvalue,  EG.Id, fragment, FG.PrecursorMz, FG.TotalPeakArea, F.PeakArea )
 
   peptides.data = dplyr::select(peptides.filtered, R.Label, R.FileName, sample, replicate, batch,
-                         EG.StrippedSequence, EG.Qvalue, FG.TotalPeakArea,
+                         EG.StrippedSequence, FG.Id, EG.Qvalue, FG.TotalPeakArea,
+                         fragment,
                          F.InterferenceScore, 
                          F.PossibleInterference, 
                          F.PeakArea )
   
-    
+  peptides.data$EG.StrippedSequence = factor(peptides.data$EG.StrippedSequence)
+  peptides.data$R.Label = factor(peptides.data$R.Label)
+  
+
+
   #peptides.data$date = factor(experiment_map$date[match(peptides.data$R.Label, experiment_map$SampleName)])
-  peptides.data$batch.exp = factor(experiment_map$batch[match(peptides.data$R.Label, experiment_map$SampleName)])
-  peptides.data$batch.exp.n = factor(as.numeric(peptides.data$batch.exp))
-  peptides.data$batch_date = factor(experiment_map$date[match(peptides.data$R.Label, experiment_map$SampleName)])
+#   peptides.data$batch.exp = factor(experiment_map$batch[match(peptides.data$R.Label, experiment_map$SampleName)])
+#   peptides.data$batch.exp.n = factor(as.numeric(peptides.data$batch.exp))
+#   peptides.data$batch_date = factor(experiment_map$date[match(peptides.data$R.Label, experiment_map$SampleName)])
+#   
+#   peptides.data$acquisition_date = factor(dates_map$Date.of.acquisition[match(peptides.data$R.Label, dates_map$Data_file_name)])
   
-  peptides.data$acquisition_date = factor(dates_map$Date.of.acquisition[match(peptides.data$R.Label, dates_map$Data_file_name)])
-  
+
+#   tmp.tbl = peptides.data %>% group_by(R.Label, batch) %>% distinct(R.Label, batch) %>% dplyr::select(R.Label, batch)
+#   file_name = paste("R.Label_batch", suffix, "tsv", sep=".")
+#   file_path = paste(output_dir, file_name, sep="/")
+#   write.table(x=tmp.tbl, file=file_path, quote=F, sep="\t", row.names=F, col.names=T)
 
   
   file_name = paste("peptides.data", suffix, "RData", sep=".")
@@ -78,7 +91,6 @@ create.exp_annotations = function() {
   
   
   experiment_map.f = experiment_map[which(experiment_map$SampleName %in% acqusition_times$sample_name),]
-  
   sample_exp.map = merge(unique(sample_map), subset(experiment_map.f, select=c("SampleName", "batch", "date"), by="SampleName", all=T))
 
   file_name = paste("sample_exp.map", suffix, "RData", sep=".")
@@ -92,10 +104,11 @@ createMetadata = function() {
   
   #creating metadate
   load("./R/objects/experiment.map._load_.RData")
-  load("./R/objects/sample_exp.map._load_.RData")
+  load("./R/objects/sample.map._load_.RData")
   load("./R/objects/acqusition_times._load_.RData")
   load("./R/objects/dates_map._load_.RData")
   load("./R/objects/gene.annotations._load_.RData")
+  
   
   
   orf2gene_name = unique(data.frame(ORF = gene.annotations$V4, gene_name = gene.annotations$V6))
@@ -113,6 +126,10 @@ createMetadata = function() {
                               type = sample_map$Type[match(acqusition_times$sample_name, sample_map$SampleName)],
                               aquisition_date = acqusition_times$AcquisitionDate)
   
+  exp_annotation$ORF  = as.character(exp_annotation$ORF)
+  exp_annotation$gene = as.character(exp_annotation$gene)
+  
+
   exp_annotation$ORF[exp_annotation$sample_name == "KL_Try_016_c"] = "WT"
   exp_annotation$ORF[exp_annotation$sample_name == "KL_Try_027_c"] = "WT"
   exp_annotation$ORF[exp_annotation$sample_name == "KL_Try_013_c"] = "YPL031C"
@@ -133,14 +150,20 @@ createMetadata = function() {
   exp_annotation = exp_annotation[exp_annotation$filename !="KL_Try_028_a.wiff.1.~idx2",]
   exp_annotation = exp_annotation[exp_annotation$filename !="KL_batches_JV_v01.xlsx",]
   
-  exp_annotation$batch.exp  = factor(sample_exp.map$batch[match(exp_annotation$sample_name, sample_exp.map$SampleName)])
-  exp_annotation$batch_date = factor(sample_exp.map$date[match(exp_annotation$sample_name, sample_exp.map$SampleName)])
-  exp_annotation$batch_date = factor(as.numeric(exp_annotation$batch.exp))
+  exp_annotation$batch.exp  = factor(experiment_map$batch[match(exp_annotation$sample_name, experiment_map$SampleName)])
+  exp_annotation$batch_date = factor(experiment_map$date[match(exp_annotation$sample_name, experiment_map$SampleName)])
+  exp_annotation$batch.exp.n = factor(as.numeric(exp_annotation$batch.exp))
   
   exp_annotation = exp_annotation %>% group_by(ORF) %>% mutate (type = type[!is.na(type)][1])
   exp_annotation = exp_annotation %>% group_by(ORF) %>% mutate (batch.exp = batch.exp[!is.na(batch.exp)][1])
   
   exp_annotation = droplevels(exp_annotation)
+  exp_annotation$gene[exp_annotation$gene == ""] = exp_annotation$ORF[exp_annotation$gene == ""]
+  exp_annotation$ORF = factor(exp_annotation$ORF)
+  exp_annotation$gene = factor(exp_annotation$gene)
+  
+  exp_annotation[exp_annotation$sample_name == "KL_Try_027_c",]$batch_date = "2014_04_14"
+  exp_annotation[exp_annotation$sample_name == "KL_Try_027_c",]$batch.exp.n = 5
   
   
   #stopifnot(!is.na(exp_annotation))
@@ -158,8 +181,7 @@ createMetabolites = function() {
   load("./R/objects/sample_exp.map.RData")
   load("./R/objects/dates_map._load_.RData")
     
-  
-  
+    
   pattern.p = "(\\d+)_KL_([A-Za-z0-9]+)_?(\\d?)"
   matches.tmp = stringr::str_match_all(string=metabolites.raw[,1], pattern=pattern.p)
   
@@ -212,6 +234,103 @@ createMetabolites = function() {
 
 }
 
+
+createMetabolites2 = function() {
+  load("./R/objects/dataset.metabolites.raw._load_.RData")
+  load("./R/objects/dates_map._load_.RData")
+  
+  
+  dataset.metabolites.raw$sample_id = factor(paste(dataset.metabolites.raw$Experiment, dataset.metabolites.raw$Sample, sep="_"))
+    
+  pattern.p = "(\\d+)_KL_([A-Za-z0-9]+)_?(\\d?)"
+  matches.tmp = stringr::str_match_all(string=dataset.metabolites.raw$sample_id, pattern=pattern.p)
+  
+  pheno.met = data.frame(matrix(unlist(matches.tmp), byrow=T, ncol=length(matches.tmp[[1]])))
+  
+  names(pheno.met) = c("sample_id", "batch", "sample", "replicate")
+  
+  pheno.met$sample = paste("KL",as.character(pheno.met$sample), sep="")
+  pheno.met$sample[grep(pattern="WT", ignore.case=T, x=pheno.met$sample)] = "WT"
+  pheno.met$sample = factor(pheno.met$sample)
+  
+  
+  pheno.met$ORF = as.character(dates_map$ORF[match(pheno.met$sample, dates_map$Nr)])
+  pheno.met$ORF[grep(pattern="WT", ignore.case=T, x=pheno.met$sample)] = "WT"
+  pheno.met$ORF = factor(pheno.met$ORF)
+  
+  metabolite_metadata = pheno.met
+  
+  file_name = paste("metabolite_metadata", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(metabolite_metadata,file=file_path)  
+  
+  
+  metabolites.data = melt(dplyr::select(dataset.metabolites.raw, -file, -Sample, -Experiment,-batch), id.vars=c("sample_id"))
+  
+  file_name = paste("metabolites.data", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(metabolites.data,file=file_path)  
+  
+}
+
+createAA = function() {
+  load("./R/objects//aa.raw._load_.RData")
+  #load("./R/objects/exp_metadata._clean_.RData")
+  load("./R/objects/metabolite_metadata._clean_.RData")
+  load("./R/objects/dates_map._load_.RData")
+  
+#   file_name = paste("kinases", suffix, "txt", sep=".")
+#   file_path = paste(output_dir, file_name, sep="/") 
+#   write.table(x=unique(exp_metadata$ORF[exp_metadata$type == "Kinase"]),col.names=F, row.names=F, file=file_path, quote=F)
+#   
+  aa.raw$Strain = sub(pattern="^0(.*?)", replacement="\\1", x=as.character(aa.raw$Strain))
+  aa.raw$Strain = factor(sub(pattern="^(\\d+)", replacement="KL\\1", x=as.character(aa.raw$Strain), perl=T))
+  
+       
+  aa.raw$sample_id = factor(with(aa.raw, paste(Batch, Strain, Replicate,Date, sep="_")))
+  aa_metadata = aa.raw %>% dplyr::select(sample_id, Batch, Strain, Replicate, Date)
+  
+  aa_metadata$ORF = as.character(dates_map$ORF[match(aa_metadata$Strain, dates_map$Nr)])
+  aa_metadata$ORF[is.na(aa_metadata$ORF)] = as.character(aa_metadata$Strain[which(is.na(aa_metadata$ORF))])
+  
+  file_name = paste("aa_metadata", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(aa_metadata,file=file_path)  
+  
+  
+  aa.data = melt(dplyr::select(aa.raw, -Batch, -Strain, -Replicate, -Date), id.vars=c("sample_id"))
+  file_name = paste("aa.data", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(aa.data,file=file_path)  
+
+}
+
+createAA_michael = function() {
+  load("./R/objects//aa_michael.raw._load_.RData")
+  
+  aa_michael.metadata = aa_michael.raw %>% dplyr::select(Name, gene, ORF, Batch, Time)
+  names(aa_michael.metadata) = c("sample_id", "gene", "ORF", "batch", "date")
+  aa_michael.data = melt(aa_michael.raw %>% dplyr::select(-gene, -ORF, -Batch, -Time), id.vars="Name")
+  names(aa_michael.data) = c("sample_id", "variable", "value")
+  
+  aa_michael.metadata$ORF = as.character(aa_michael.metadata$ORF)
+  aa_michael.metadata$ORF[grep(pattern="QC", x=aa_michael.metadata$sample_id, ignore.case=T)] = "QC"
+  aa_michael.metadata$ORF = factor(aa_michael.metadata$ORF)
+  
+  aa_michael.metadata$batch = factor(aa_michael.metadata$batch)
+  aa_michael.metadata$date = as.Date(aa_michael.metadata$date)
+
+  file_name = paste("aa_michael.metadata", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(aa_michael.metadata,file=file_path)  
+  
+  file_name = paste("aa_michael.data", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(aa_michael.data,file=file_path)  
+  
+} 
+
+
 createPicotti_Data_1 = function () {
   picotti.raw = read.xlsx2("./data/2015-04-16/nature11835-s2.xlsx", 
                            sheetIndex=5, startRow=3, header=T) # discovery data
@@ -259,11 +378,14 @@ createKinaseClasses = function() {
 
 
 main = function() {
-  #create.peptides()
+  create.peptides()
   create.exp_annotations()
   createMetabolites()
   createPicotti_Data_1()
   createMetadata()
+  createAA() 
+  createAA_michael()
+  createMetabolites2()
 }
 
 

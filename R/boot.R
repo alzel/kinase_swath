@@ -1,3 +1,4 @@
+library("org.Sc.sgd.db")
 library("ggplot2")
 library("reshape")
 library("reshape2")
@@ -21,7 +22,7 @@ library("tidyr")
 
 library("RColorBrewer")
 library("ConsensusClusterPlus")
-library("org.Sc.sgd.db")
+
 
 output_dir = "./R/objects"
 figures_dir = "./figures"

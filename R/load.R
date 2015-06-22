@@ -65,7 +65,7 @@ load_dates_map = function() {
 
   tmp = read.xlsx(file="./data/2015-01-24/Kinase List_FC_sortedProtNo_JV.xls", header=T, sheetName="Sheet2")
   tmp = tbl_df(tmp)
-  View(tmp)
+  
   dates_map = dplyr::select(tmp, ORF, gene, Type, Nr, Data_file_name, Sampling.date, Processing.date, Date.of.acquisition)
   
   file_name = paste("dates_map", suffix, "RData", sep=".")
@@ -165,6 +165,17 @@ loadKEGG = function() {
   file_name = paste("module2orf", suffix, "RData", sep=".")
   file_path = paste(output_dir, file_name, sep="/")
   save(module2orf, file=file_path)
+
+  url_string = "http://rest.kegg.jp/link/ko/sce"
+  response = getURL(url=url_string)
+  orf2ko = data.frame(my_splitter(response))
+  
+  names(orf2ko) = c("ORF", "ko")
+  orf2ko$ORF = factor(sub(x=orf2ko$ORF, pattern="sce:(\\w+)", replacement="\\1"))
+
+  file_name = paste("orf2ko", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(orf2ko, file=file_path)
   
 }
 
@@ -197,6 +208,8 @@ loadGO_slim = function() {
 
 loadGO = function() {
   GO.raw = tbl_df(read.delim("./data/2015-03-19/gene_association.sgd", header=F, comment.char="!"))
+  GO_slim.raw = tbl_df(read.delim("./data/2015-03-19/go_slim_mapping.tab", header=F, comment.char="!"))
+  
   GO.raw.f = GO.raw %>% filter(V15 == "SGD")
   
   GO.raw.f %>% dplyr::select(V5, V2, V10, V9)
@@ -221,7 +234,23 @@ loadGO = function() {
   file_path = paste(output_dir, file_name, sep="/")
   save(GO_slim.function, file=file_path)
   
+  file_name = paste("GO_slim.raw", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(GO_slim.raw, file=file_path)
+  
 }
+
+loadSTRING = function() {
+  STRING <- tbl_df(read.table("~/projects/kinase_swath/data/2015-06-03/4932.protein.links.detailed.v10.txt", header=T, quote="\""))
+  STRING$ORF1 =  sub(pattern="4932.(.*)",replacement="\\1", x=STRING$protein1)
+  STRING$ORF2 =  sub(pattern="4932.(.*)",replacement="\\1", x=STRING$protein2)
+  
+  
+  file_name = paste("STRING", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(STRING, file=file_path)
+}
+
 
 load_metabolites = function() {
   metabolites.raw = read.table("./data/2014-03-05/KL_screen_normalized_PPP_results.csv", header=T, sep=",")
@@ -229,6 +258,67 @@ load_metabolites = function() {
   file_path = paste(output_dir, file_name, sep="/")
   save(metabolites.raw, file=file_path)
 }
+
+load_AA = function() {
+  aa.raw = read.table("./data/2015-05-11/2015-04-27 _concentrations_raw.csv", sep=",", header=T, strip.white=T)
+  
+  file_name = paste("aa.raw", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(aa.raw, file=file_path)
+}
+
+load_AA2 = function() {
+  aa_michael.raw = read.table("./data/2015-05-11/kinases_aleksej_new_DilCorr.txt", sep=" ", header=T, strip.white=T)
+  
+  file_name = paste("aa_michael.raw", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(aa_michael.raw, file=file_path)
+}
+
+load_model = function() {
+  yeast <- read.delim("./results/2015-05-12/yeast.long")
+  
+  # Read in the data
+  x <- scan("./results/2015-05-12/model/reaction_orf_iso1.txt", what="", sep="\n", comment.char="#")
+  # Separate elements by one or more whitepace
+  y <- strsplit(x, "[[:space:]]+")
+  
+  # Extract the first vector element and set it as the list element name
+  names(y) <- sapply(y, function(x) x[[1]]) # same as above
+  # Remove the first vector element from each list element
+  y <- lapply(y, function(x) x[-1]) # same as above
+  
+  
+  tmp.list = list()
+  for (i in 1: length(y)) {
+    tmp.list[[i]] = data.frame(reaction = names(y)[i],
+                               gene = y[[i]] )
+  }
+      
+  reaction2orf = do.call(rbind.data.frame, tmp.list)
+  
+  yeast.model = merge(yeast, reaction2orf, by.x="reaction", by.y="reaction", all.x=T)
+  
+  file_name = paste("yeast.model", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(yeast.model, file=file_path)
+  
+  file_name = paste("reaction2orf", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(reaction2orf, file=file_path)
+}
+
+load_iMM904 = function(){
+  iMM904 <- read.delim("./results/2015-06-16/iMM904_long.tsv")
+  iMM904 = iMM904_long %>% arrange(metabolite)
+  iMM904$directionality = sub(pattern="-->", replacement="->", x=iMM904_long$directionality)
+  iMM904$directionality = sub(pattern="<==>", replacement="<->", x=iMM904_long$directionality)
+  
+  file_name = paste("iMM904", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(iMM904, file=file_path)
+}
+
 
 load_gene_annotations = function() {
   gene.annotations <- read.delim("./data/2015-04-26/dbxref.tab", header=F)
@@ -239,8 +329,102 @@ load_gene_annotations = function() {
   
 }
 
+load_metabolite2iMM904_map = function () {
+  metabolite2iMM904 <- read.delim("./results/2015-06-16/compound2kegg.txt")
+  
+  file_name = paste("metabolite2iMM904", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(metabolite2iMM904, file=file_path)
+}
+
+load_metabolitesRaw = function() {
+  input_path = "./data/2015-05-01/"
+  message("Loading metabolites")
+  
+  filesToProcess = dir(path=input_path, pattern = "exp*", recursive=F)
+  filesToProcess = filesToProcess[grep(pattern="*.csv", x=filesToProcess)]
+  pattern.p = "exp(.*?).csv"
+  
+  matches = stringr::str_match_all(pattern=pattern.p, filesToProcess)
+  
+  read_metabolites = function(x) {
+    file_name = paste(input_path,x[[1]], sep="/") 
+    table = read.csv(file_name, header=T)
+    table$batch = factor(x[[2]]) 
+    table$file =  factor(x[[1]])
+    return(table)
+  }
+  
+  file.list = lapply(matches, FUN=read_metabolites)
+  dataset.metabolites.raw = do.call(rbind.data.frame, file.list)
+  stopifnot(dataset.metabolites.raw$batch == dataset.metabolites.raw$Experiment)
+  
+  file_name = paste("dataset.metabolites.raw", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(dataset.metabolites.raw, file=file_path)
+    
+}
+
+
+load_BIOGRID = function() {
+  
+  BIOGRID.raw = read.delim(file="./data//2015-03-18//BIOGRID-ORGANISM-Saccharomyces_cerevisiae-3.3.122.tab2.txt", header=T, sep="\t", comment.char="")
+  BIOGRID.raw$Pubmed.ID = factor(BIOGRID.raw$Pubmed.ID)
+  BIOGRID.raw$Author = factor(BIOGRID.raw$Author)
+  yeast.ppi = BIOGRID.raw
+  
+  file_name = paste("yeast.ppi", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(yeast.ppi, file=file_path)
+}
+
+loadTF = function() {
+  yeastract <- read.table("./data/2015-06-03/RegulationTwoColumnTable_Documented_2013927.tsv", sep=";", quote="\"")
+  
+  names(yeastract) = c("TF", "gene")
+  file_name = paste("yeastract", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(yeastract, file=file_path)
+  
+}
+
+load_KEGG_htext = function() {
+  kegg_categories <- read.delim("./results/2015-06-09/kegg4R.tsv", header=T)
+  file_name = paste("kegg_categories", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(kegg_categories, file=file_path)  
+}
+
+load_iMaranas_GTrass = function() {
+  raw = read.delim("./results/2015-06-09/s_cerevisiae/GTRass_processed.tsv", header=F)
+  raw$V2 = trimWhiteSpace(raw$V2)
+  raw.list = list()
+  
+  raw.list = strsplit(x=raw$V2, split="\\s+", perl=T)
+  names(raw.list) = raw$V1
+  tmp.list = list()
+  
+  for(i in 1:length(raw.list)) {
+    if (length(raw.list[[i]]) == 0) {
+      raw.list[[i]] = NA
+    }
+    tmp.df = data.frame(reaction = names(raw.list)[i], 
+                        ORF = raw.list[[i]], stringsAsFactors=F) 
+    tmp.list[[i]] = tmp.df
+  }
+  model_reaction2ORF = do.call(rbind.data.frame, tmp.list)
+  
+  file_name = paste("model_reaction2ORF", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(model_reaction2ORF, file=file_path)  
+}
+
+
+
+
+
 main = function() {
-  #load_proteome()
+  load_proteome()
   
   load_batch_map()
   load_sample_map()
@@ -250,6 +434,14 @@ main = function() {
   load_gene_annotations()
   load_metabolites()
   loadKEGG()
+  load_BIOGRID()
+  load_AA()
+  load_AA2()
+  load_model()
+  load_iMM904()
+  load_metabolite2iMM904_map()
+  load_KEGG_htext()
+  load_iMaranas_GTrass()
 }
 
 main()

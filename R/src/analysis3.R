@@ -99,9 +99,6 @@ col_breaks = c(-5,-4,-3,-2,-1,1,2,3,4,5)
 
 aheatmap(ratios.FC.wide[,-1],
          annCol=annotation,
-         #annRow=factor(cl_res2[[cl_H]]$consensusClass),
-         #Colv=cl_res[[cl_V]]$consensusTree,
-         #Rowv=cl_res2[[cl_H]]$consensusTree,
          color = paste("-RdBu", length(col_breaks)-1, sep=":"),
          breaks = col_breaks)
 

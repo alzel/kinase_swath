@@ -7,23 +7,110 @@ plots.list = list()
 fun_name = "get_peptides2"
 
 ## ---- data_load ----
-load("./R/objects/peptides.data.RData") 
+load("./R/objects/peptides.data._clean_.RData") 
 load("./R/objects/exp_metadata._clean_.RData")
+load("./R/objects/data.frame.peptides.raw._load_.RData")
 
-## ---- selecting peptides based on spectronaut Q-value
-peptides.data$EG.StrippedSequence = factor(peptides.data$EG.StrippedSequence)
-peptides.data$R.Label = factor(peptides.data$R.Label)
 
 peptides.data = tbl_df(peptides.data[peptides.data$R.Label %in% exp_metadata$sample_name,])
 
-peptides.peak_sums <- group_by(peptides.data, batch_date, batch, batch.exp.n, R.Label, EG.StrippedSequence) %>%
-  dplyr::summarise(count = n(),
-                   signal = FG.TotalPeakArea[1],
-                   EG.Qvalue = EG.Qvalue[1]) %>% group_by(R.Label, EG.StrippedSequence) %>% distinct(R.Label, EG.StrippedSequence) #TODO: in future batch variable (spectronaut batch) has to be removed
+peptides.data = peptides.data %>% distinct(R.Label, FG.Id, fragment)
 
+stopifnot(any(as.vector((peptides.data %>% 
+                           select(R.Label, batch) %>% 
+                           distinct(R.Label, batch) %>% 
+                           group_by(R.Label) %>% 
+                           mutate(n = n()) %>% select(n))[,2]) == 1))
+
+
+# Intructions from Oliver Bernhardt
+#for each precursor (modified sequence + charge) you do:
+#  1) select all fragments that have "PossibleInterference== false" in ALL runs to use for quantification
+#  2) If the set obtained in step 1 is < 3 then select all remaining fragments ("PossibleInterference== true" in AT LEAST ONE run) for further ranking
+#  3) calculate the average interference score per fragment across all runs (for the set from step 2)
+#  4) order these fragments based on their cross run average interference score (from low to high).
+#  5) add fragments from this ordered list to the set you already obtained in step 1 till you have AT LEAST 3 fragments selected for quantification.
+
+
+
+quant_thr = 3
+peptides.data.tmp = peptides.data %>% 
+  group_by(FG.Id, fragment) %>% 
+  mutate(F.GoodInAll = ifelse(any(F.PossibleInterference == "True"),0,1),
+         mean.F.InterferenceScore = mean(F.InterferenceScore, na.rm=T),
+         median.F.InterferenceScore = median(F.InterferenceScore, na.rm=T)) %>%
+  group_by(R.Label, FG.Id) %>%
+  mutate(count.F.GoodInAll = sum(F.GoodInAll)) %>%
+  group_by(R.Label, FG.Id) %>%
+  arrange(median.F.InterferenceScore) %>%
+  group_by(R.Label, FG.Id) %>%
+  mutate(miss.count = count.F.GoodInAll - quant_thr,
+         topquant = ifelse(miss.count < 0, abs(miss.count), 0),
+         quanty_all = T,
+         F.IsQuantified = ifelse(topquant != 0, 
+                                 which(quanty_all) %in% c(which(F.GoodInAll == 1), which(F.GoodInAll != 1)[1:topquant[1]]), 
+                                 which(quanty_all) %in% which(F.GoodInAll == 1)))
+
+fragments.data = peptides.data.tmp %>% group_by(R.Label, FG.Id) %>%
+  mutate(FG.TotalPeakArea_new = sum(F.PeakArea[F.IsQuantified])) %>% group_by(R.Label, EG.StrippedSequence, FG.Id ) %>% arrange()
+
+fragments.data$miss.count = NULL
+fragments.data$topquant = NULL
+fragments.data$quanty_all = NULL
+
+
+
+fragments.data = fragments.data %>% group_by(FG.Id) %>%  mutate(qvalue.median = median(unique(EG.Qvalue)))
+
+p = ggplot(fragments.data, aes(x = log(qvalue.median))) + 
+  geom_density() +
+  geom_vline(xintercept = log(0.01))
+plots.list = lappend(plots.list, p)
+
+## ---- selecting peptides based on spectronaut Q-value
+
+fragments.data.f = filter(fragments.data, qvalue.median <= 0.01, F.IsQuantified == T)
+
+# peptides.data$EG.StrippedSequence = factor(peptides.data$EG.StrippedSequence)
+# peptides.data$R.Label = factor(peptides.data$R.Label)
+# 
+# peptides.data = tbl_df(peptides.data[peptides.data$R.Label %in% exp_metadata$sample_name,])
+# 
+# peptides.peak_stats <- peptides.data %>% group_by(R.Label, EG.StrippedSequence, FG.Id, batch) %>%
+#                                          summarize(count = n(),
+#                                                    count.PossibleInterference = length(F.PeakArea[F.PossibleInterference != "True"]),
+#                                                    sum.F.PeakArea = sum(F.PeakArea[F.PossibleInterference != "True"]),
+#                                                    sum.F.PeakArea.all = sum(F.PeakArea),
+#                                                    signal = FG.TotalPeakArea[1])
+# 
+# 
+# toPlot = droplevels(peptides.peak_stats[peptides.peak_stats$FG.Id %in% sample(x=levels(peptides.peak_stats$FG.Id), size=50),])
+# p = ggplot(toPlot, aes(x=jitter(as.numeric(FG.Id)), y=jitter(count.PossibleInterference))) +
+#       geom_point() +
+#       scale_x_continuous(breaks=as.numeric(factor(levels(toPlot$FG.Id))), labels=levels(toPlot$FG.Id))+
+#       xlab("FG.Id") +
+#       theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+# plots.list = lappend(plots.list, p)
+
+
+
+
+
+# peptides.peak_sums <- group_by(peptides.data, batch_date, batch, batch.exp.n, R.Label, EG.StrippedSequence) %>%
+#   dplyr::summarise(count = n(),
+#                    signal = FG.TotalPeakArea[1],
+#                    EG.Qvalue = EG.Qvalue[1]) %>% group_by(R.Label, EG.StrippedSequence) %>% distinct(R.Label, EG.StrippedSequence) #TODO: in future batch variable (spectronaut batch) has to be removed
+
+peptides.peak_sums <- fragments.data.f %>% 
+                      group_by(batch,R.Label, EG.StrippedSequence, FG.Id) %>%
+                      dplyr::summarise(count = n(),  signal = FG.TotalPeakArea_new[1]) %>%
+                      group_by(batch,R.Label, EG.StrippedSequence) %>%
+                      dplyr::summarise(count = sum(count),  
+                                       signal = sum(signal))
 
 
 peptides.peak_sums$aquisition_date = exp_metadata$aquisition_date[match(peptides.peak_sums$R.Label, exp_metadata$sample_name)]
+peptides.peak_sums$batch.exp.n = exp_metadata$batch.exp.n[match(peptides.peak_sums$R.Label, exp_metadata$sample_name)]
 
 
 peptides.peak_sums.stats = peptides.peak_sums %>% group_by(R.Label, aquisition_date) %>% summarize(sum = sum(signal),
@@ -40,9 +127,7 @@ p = ggplot(peptides.peak_sums.stats, aes(x=aquisition_date.str, y=median)) +
        geom_point(data=peptides.peak_sums.stats.mix,aes(x=aquisition_date.str, y=median),col="red") + #MIX
        geom_point(data=peptides.peak_sums.stats.wt,aes(x=aquisition_date.str, y=median),col="blue") + #WT   
        scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%B-%d"))
-
 plots.list = lappend(plots.list, p)
-
 
 
 tmp.peptides = unique(as.character(peptides.peak_sums$EG.StrippedSequence))
@@ -70,10 +155,11 @@ p = ggplot(toPlot, aes(x=aquisition_date.str, y=signal, col=batch.exp.n)) +
 exp_clusters = tbl_df(exp_metadata)
 exp_clusters$aquisition_date.str = as.POSIXct(strftime(exp_clusters$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
 
-exp_clusters$kmeans_5 = kmeans(exp_clusters$aquisition_date.str, 5)$cl
-exp_clusters$kmeans_6 = kmeans(exp_clusters$aquisition_date.str, 6)$cl
-exp_clusters$kmeans_7 = kmeans(exp_clusters$aquisition_date.str, 7)$cl
-exp_clusters$kmeans_8 = kmeans(exp_clusters$aquisition_date.str, 8)$cl
+set.seed(1234)
+exp_clusters$kmeans_5 = pam(exp_clusters$aquisition_date.str, 5)$clustering
+exp_clusters$kmeans_6 = pam(exp_clusters$aquisition_date.str, 6)$clustering
+exp_clusters$kmeans_7 = pam(exp_clusters$aquisition_date.str, 7)$clustering
+exp_clusters$kmeans_8 = pam(exp_clusters$aquisition_date.str, 8)$clustering
 
 tmp.clusters = exp_clusters %>% select(sample_name, kmeans_5, kmeans_6, kmeans_7, kmeans_8)
 tmp.clusters.long = melt(as.data.frame(tmp.clusters), id.vars="sample_name")
@@ -92,35 +178,37 @@ toPlot.merged$value = factor(toPlot.merged$value)
 
 p = ggplot(toPlot.merged, aes(x=aquisition_date.str, y=signal, col=value)) + 
   geom_point() +
-  geom_point(data=toPlot.mix,aes(x=aquisition_date.str, y=signal),col="red") + #MIX
+  geom_point(data=toPlot.mix,aes(x=aquisition_date.str, y=jitter(signal,50)),col="red") + #MIX
   geom_point(data=toPlot.wt, aes(x=aquisition_date.str, y=signal),col="blue") + #WT   
   scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d"))+
   facet_wrap(variable~EG.StrippedSequence, scales="free")
+
 plots.list = lappend(plots.list, p)
 
 
 ## 7 batch clusters decided ##
 
-exp_metadata$aquisition_date.str = as.POSIXct(strftime(exp_clusters$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
-exp_metadata$batch_kmeans = kmeans(exp_metadata$aquisition_date.str, 7)$cl
-
-
+exp_metadata$aquisition_date.str = as.POSIXct(strftime(exp_metadata$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
+exp_metadata$batch_kmeans = pam(exp_metadata$aquisition_date.str, 7)$clustering
+#exp_metadata$batch_kmeans = kmeans(exp_metadata$aquisition_date.str, 7)$cl
+                                    
 
 ## -- filtering based on Q-value ----
-qvalues.stats <- peptides.peak_sums %>% group_by(EG.StrippedSequence) %>%  dplyr::summarise(qvalue.median = median(EG.Qvalue))
-p = ggplot(qvalues.stats, aes(x = log(qvalue.median))) + 
-  geom_density() +
-  geom_vline(xintercept = log(0.01))
-plots.list = lappend(plots.list, p)
+# qvalues.stats <- peptides.peak_sums %>% group_by(EG.StrippedSequence) %>%  dplyr::summarise(qvalue.median = median(EG.Qvalue))
+# p = ggplot(qvalues.stats, aes(x = log(qvalue.median))) + 
+#   geom_density() +
+#   geom_vline(xintercept = log(0.01))
+# plots.list = lappend(plots.list, p)
+# 
+# peptides.peak_sums = merge(peptides.peak_sums, qvalues.stats, by = c("EG.StrippedSequence"))
+# peptides.peak_sums = tbl_df(peptides.peak_sums)
+#peptides.peak_sums.f = filter(peptides.peak_sums, qvalue.median <= 0.01)
 
-peptides.peak_sums = merge(peptides.peak_sums, qvalues.stats, by = c("EG.StrippedSequence"))
-peptides.peak_sums = tbl_df(peptides.peak_sums)
-peptides.peak_sums.f = filter(peptides.peak_sums, qvalue.median <= 0.01)
 
-peptides.peak_sums.f$T_signal = with(peptides.peak_sums.f, log(signal))
+peptides.peak_sums$T_signal = with(peptides.peak_sums, log(signal))
 
 thr_remove = 0 #removing thr_remove/2% from each side of data
-peptides.peak_sums.trimmed = peptides.peak_sums.f
+peptides.peak_sums.trimmed = peptides.peak_sums
 
 if (thr_remove > 0) {
   message(paste("Removing ", thr_remove," fraction of dataset", sep=""))
@@ -150,16 +238,19 @@ pheno = exp_metadata[match(colnames(peptides.matrix), exp_metadata$sample_name),
 mod = model.matrix(~as.factor(ORF), data=pheno)
 
 peptides.matrix.combat = ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=mod, par.prior=T)
-peptides.matrix.quant.combat = ComBat(normalizeQuantiles(peptides.matrix), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
+#peptides.matrix.combat.vsn = normalizeVSN(ComBat(exp(peptides.matrix), batch=pheno$batch_kmeans, mod=mod, par.prior=T))
+#peptides.matrix.vsn.combat = ComBat(normalizeVSN(exp(peptides.matrix)), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
+peptides.matrix.combat.quant = normalizeQuantiles(ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=mod, par.prior=T))
 
 
 file_name = "peptides.matrix.combat.RData"
 file_path = paste(output_dir, file_name, sep="/")
 save(peptides.matrix.combat,file=file_path) 
 
-file_name = "peptides.matrix.quant.combat.RData"
+file_name = "peptides.matrix.combat.quant.RData"
 file_path = paste(output_dir, file_name, sep="/")
-save(peptides.matrix.quant.combat,file=file_path) 
+save(peptides.matrix.combat.quant,file=file_path) 
+
 
 
 # X = model.matrix(~ORF + batch_kmeans, data=pheno)
@@ -171,7 +262,7 @@ save(peptides.matrix.quant.combat,file=file_path)
 
 
 before = peptides.matrix
-after = peptides.matrix.combat
+after = peptides.matrix.combat.quant
 
 # pca
 message("plotting PCA results")
@@ -218,8 +309,8 @@ dev.off()
 
 
 #individual examples
-before = peptides.matrix
-after =  peptides.matrix.combat
+#before = peptides.matrix
+#after =  peptides.matrix.combat
 
 
 before.long = tbl_df(melt(before, id.vars="rownames"))
@@ -254,7 +345,6 @@ p = ggplot(toPlot, aes(x=aquisition_date.str, y=exp(signal), col=batch_kmeans)) 
   geom_point(data=toPlot.wt, aes(x=aquisition_date.str, y=exp(signal)),col="blue") + #WT   
   scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d"))+
   facet_grid(EG.StrippedSequence~category, scales="free")
-
 
 plots.list = lappend(plots.list, p)
 

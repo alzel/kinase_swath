@@ -1,11 +1,11 @@
 O = "./R/objects"
 
-all: data peptides
+all: data peptides proteins
 
 data: ./output/load.Rout ./output/clean.Rout
 peptides: ./output/get_peptides2.Rout
-correlations: ./output/peptides_correlations.Rout
-analysis1: ./output/analysis1.Rout
+proteins: ./output/get_peptides2.Rout ./output/peptides_correlations.Rout ./output/get_proteins.Rout
+analysis1: ./output/get_peptides2.Rout ./output/peptides_correlations.Rout ./output/get_proteins.Rout ./output/analysis1.Rout
 
 #loading data
 ./output/load.Rout: ./R/boot.R ./R/functions.R ./R/load.R ./data/*
@@ -17,8 +17,18 @@ analysis1: ./output/analysis1.Rout
 
 #getting peptides filtered based on Qvalue from spectronaut also adjusting for batch effects
 
-./output/get_peptides2.Rout: ./R/src/get_peptides2.R ./R/objects/peptides.data.RData ./R/objects/exp_metadata._clean_.RData
+./output/get_peptides2.Rout: ./R/src/get_peptides2.R ./R/objects/peptides.data._clean_.RData ./R/objects/exp_metadata._clean_.RData
 	R CMD BATCH --no-save --no-restore ./R/src/get_peptides2.R ./output/get_peptides2.Rout
+
+#getting correlations among peptides within protein
+./output/peptides_correlations.Rout: ./R/src/peptides_correlations.R ./R/objects/peptides.peak_sums.trimmed.RData ./R/objects/protein_annotations._load_.RData
+	 38   R CMD BATCH --no-save --no-restore ./R/src/peptides_correlations.R ./output/peptides_correlations.Rout
+
+#calculating protein fold-changes
+./output/get_proteins.Rout: ./R/src/get_proteins.R ./R/objects/exp_metadata._clean_.RData ./R/objects/peptides.matrix.combat.RData ./R/objects/peptides.cor.stats.top.RData ./R/objects/protein_annotations._load_.RData
+	R CMD BATCH --no-save --no-restore ./R/src/get_proteins.R ./output/get_proteins.Rout
+
+
 
 ./output/analysis1.Rout: ./R/src/analysis1.R ./R/objects/proteins.FC.combat.RData ./R/objects/kinase_classes._clean_.RData ./R/objects/exp_metadata._clean_.RData
 	R CMD BATCH --no-save --no-restore ./R/src/analysis1.R ./output/analysis1.Rout

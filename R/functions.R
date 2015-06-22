@@ -471,4 +471,109 @@ pathway_enrichments = function(orf_thr, orf_universe, pathway2orf ) {
   
 }
 
+my_diagnostics = function(fit, filename = NULL, influence=T) {
+  
+  stopifnot(class(fit) == "lm")
+  plots.list = list()
+  
+  myfortdata  = fortify(fit)
+  fit.summary = summary(fit)
+  colnames(myfortdata)[1] = "metabolite"
+  outliers = outlierTest(fit)
+  
+  cooks_thrI = 4/(nrow(myfortdata) - length(fit$coefficients)-2)  
+  
+  myfortdata$isOutlier = ifelse(rownames(myfortdata) %in% names(outliers$bonf.p < 0.05), TRUE, FALSE)
+  myfortdata$isInfluence = ifelse(myfortdata$.cooksd > cooks_thrI, TRUE, FALSE)
+  myfortdata$label = rownames(myfortdata)
+  myfortdata$rows=1:nrow(myfortdata)
+  myfortdata$.y_star = stats::predict(object=fit)
+  
+  beta.changes = data.frame(((fit$coefficients + lm.influence(fit)$coef) - fit$coefficients )/fit$coefficients)
+  beta.changes$sample = rownames(beta.changes)
+  beta.changes.long = melt(beta.changes[,-1], id.vars="sample")
+  
+  p1 = ggplot(data = myfortdata, aes(x = .fitted, y = .resid)) +
+    geom_hline(yintercept = 0, colour = "firebrick3") +
+    geom_point(size=2) +
+    geom_smooth(method="loess",se = FALSE, span=2/3) +
+    ylab("Residuals") +
+    xlab("Fitted values")
+  plots.list = lappend(plots.list, p1)
+  
+  p2 = ggplot(data = myfortdata, aes(sample = .stdresid)) +
+    stat_qq() +
+    geom_abline(colour = "firebrick3") +
+    ylab("Standartized residuals")
+  plots.list = lappend(plots.list, p2)
+  
+  p3 = ggplot(data = myfortdata, aes(x = .fitted, y = sqrt(abs(.stdresid)))) +
+    geom_point(size=2) +
+    geom_smooth(method="loess",se = FALSE)+
+    xlab("Fitted values")
+  plots.list = lappend(plots.list, p3)
+  
+  p4 = ggplot(data = myfortdata, aes(x = .hat, y=.stdresid)) +
+    geom_point(aes(size = .cooksd)) +
+    geom_hline(yintercept=c(-2,0,2)) +
+    geom_vline(xintercept=c(2*sum(myfortdata$.hat)/nrow(myfortdata),
+                            3*sum(myfortdata$.hat)/nrow(myfortdata)))+
+    scale_x_continuous("Leverage") +
+    scale_y_continuous("Standardized residuals") +
+    scale_size_area("Cook’s distance", max_size=6)
+  
+  if (influence) {
+    p4 = p4 + geom_text(data=filter(myfortdata, isOutlier ==T),
+                        hjust=0, vjust=0,
+                        aes(x = .hat, y=.stdresid, label=label)) +
+              geom_text(data=filter(myfortdata, isInfluence ==T),
+                        hjust=0, vjust=1, col="red",
+                        aes(x = .hat, y=.stdresid, label=label))
+  }
+  plots.list = lappend(plots.list, p4)
+  
+  p5 <- ggplot(myfortdata, aes(.hat, .cooksd)) +
+        geom_point(size=3) +
+        geom_smooth(method="loess",se=FALSE, span=2/3) +
+        scale_x_continuous("Leverage") +
+        scale_y_continuous("Cook's distance")
+  
+  if (influence) {
+    p5 = p5 + geom_hline(yintercept=cooks_thrI) +
+              geom_text(data=filter(myfortdata, isInfluence ==T),
+                hjust=0, vjust=0, col="red",
+                aes(x = .hat, y=.cooksd, label=label))
+  }
+    
+  plots.list = lappend(plots.list, p5)
+  
+  p6 <- ggplot(myfortdata, aes(y=metabolite, x=.fitted)) +
+                geom_point() +
+                geom_smooth(method="lm", se=F) +
+                scale_x_continuous(paste("Predicted",i)) +
+                scale_y_continuous(paste("Measured",i)) +
+                geom_text(x=min(myfortdata$.fitted)[1], 
+                          y=max(myfortdata[,1])[1],
+                          hjust=0, vjust=1, 
+                          label=paste("R^2 = ",round(fit.summary$r.squared,2)), parse=T)
+  plots.list = lappend(plots.list, p6)
+  
+  p7 = ggplot(beta.changes.long, aes(x=variable,y=value,2)) + 
+              geom_boxplot() +
+              geom_text(data=filter(beta.changes.long, abs(value) > 0.5), 
+                        aes(x=variable, y=value, label=sample))
+  plots.list = lappend(plots.list, p7)
+  
+  p8 <-  ggplot(myfortdata, aes(rows, .cooksd, ymin=0, ymax=.cooksd)) +
+                geom_point() + geom_linerange() +
+                scale_x_continuous("Observation Number") +
+                scale_y_continuous("Cook's distance") +
+                geom_text(data=filter(myfortdata, isInfluence ==T),
+                          hjust=0, vjust=0, col="red",
+                          aes(x = rows, y=.cooksd, label=label))
+                  
+  plots.list = lappend(plots.list, p8)
+  return(plots.list)
+}
+
 

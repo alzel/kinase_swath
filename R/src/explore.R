@@ -14,7 +14,7 @@ load("./R/objects/sample.map.RData") # load.R::load_sample_map()
 load("./R/objects/sample_exp.map.RData")
 
 
-#View(peptides.data)
+
 str(peptides.data)
 peptides.data$batch.exp.n = factor(as.numeric(peptides.data$batch.exp))
 
