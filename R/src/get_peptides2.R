@@ -150,6 +150,7 @@ p = ggplot(toPlot, aes(x=aquisition_date.str, y=signal, col=batch.exp.n)) +
           facet_wrap(~EG.StrippedSequence, scales="free")
 
 
+
 ## -- batch clustering ----
 
 exp_clusters = tbl_df(exp_metadata)
@@ -345,7 +346,7 @@ p = ggplot(toPlot, aes(x=aquisition_date.str, y=exp(signal), col=batch_kmeans)) 
   geom_point(data=toPlot.wt, aes(x=aquisition_date.str, y=exp(signal)),col="blue") + #WT   
   scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d"))+
   facet_grid(EG.StrippedSequence~category, scales="free")
-
+p
 plots.list = lappend(plots.list, p)
 
 file_name = paste(fun_name, "report.pdf", sep=".")

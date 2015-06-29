@@ -7,9 +7,11 @@ fun_name = "get_proteins"
 
 load("./R/objects/exp_metadata._clean_.RData")
 load("./R/objects/peptides.matrix.combat.RData")
-#load("./R/objects/peptides.matrix.combat.quant.RData")
+load("./R/objects/peptides.matrix.combat.quant.RData")
 load("./R/objects/peptides.cor.stats.top.RData")
 load("./R/objects/protein_annotations._load_.RData")
+
+#write.table(x=rownames(peptides.matrix.combat), file="peptide.txt", quote=F, row.names=F, col.names=F)
 
 makeProteins = function(...) {
   
@@ -121,7 +123,6 @@ makeProteins = function(...) {
 
 #peptides.long = tbl_df(melt(peptides.matrix.combat, id.vars="rownames"))
 makeProteins(peptides.matrix.combat)
-
 makeProteins(peptides.matrix.combat.quant)
 
 

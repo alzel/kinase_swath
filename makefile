@@ -28,9 +28,11 @@ analysis1: ./output/get_peptides2.Rout ./output/peptides_correlations.Rout ./out
 ./output/get_proteins.Rout: ./R/src/get_proteins.R ./R/objects/exp_metadata._clean_.RData ./R/objects/peptides.matrix.combat.RData ./R/objects/peptides.cor.stats.top.RData ./R/objects/protein_annotations._load_.RData
 	R CMD BATCH --no-save --no-restore ./R/src/get_proteins.R ./output/get_proteins.Rout
 
+./R/objects/proteins.matrix.combat.quant.FC.RData: ./output/get_proteins.Rout
 
+./R/objects/proteins.matrix.combat.quant.RData: ./output/get_proteins.Rout
 
-./output/analysis1.Rout: ./R/src/analysis1.R ./R/objects/proteins.FC.combat.RData ./R/objects/kinase_classes._clean_.RData ./R/objects/exp_metadata._clean_.RData
+./output/analysis1.Rout: ./R/src/analysis1.R ./R/objects/proteins.matrix.combat.quant.FC.RData ./R/objects/proteins.matrix.combat.quant.RData ./R/objects/exp_metadata._clean_.RData
 	R CMD BATCH --no-save --no-restore ./R/src/analysis1.R ./output/analysis1.Rout
 
 

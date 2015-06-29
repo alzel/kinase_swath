@@ -1,5 +1,6 @@
 
 source("./R/boot.R")
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)
 
 resetPar <- function() {
   dev.new()
@@ -563,15 +564,20 @@ my_diagnostics = function(fit, filename = NULL, influence=T) {
               geom_text(data=filter(beta.changes.long, abs(value) > 0.5), 
                         aes(x=variable, y=value, label=sample))
   plots.list = lappend(plots.list, p7)
+  filter(myfortdata, isInfluence ==T)
   
   p8 <-  ggplot(myfortdata, aes(rows, .cooksd, ymin=0, ymax=.cooksd)) +
                 geom_point() + geom_linerange() +
                 scale_x_continuous("Observation Number") +
-                scale_y_continuous("Cook's distance") +
-                geom_text(data=filter(myfortdata, isInfluence ==T),
-                          hjust=0, vjust=0, col="red",
-                          aes(x = rows, y=.cooksd, label=label))
-                  
+                scale_y_continuous("Cook's distance")
+  if (sum(myfortdata$isInfluence ==T) > 0 ) {
+    
+   p8 <- p8 + geom_text(data=filter(myfortdata, isInfluence ==T),
+                        hjust=0, vjust=0, col="red",
+                        aes(x = rows, y=.cooksd, label=label))                
+    
+  }
+  
   plots.list = lappend(plots.list, p8)
   return(plots.list)
 }

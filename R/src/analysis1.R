@@ -19,6 +19,10 @@ load("./R/objects/GO_slim.compartment.RData")
 load("./R/objects/kinase_classes._clean_.RData")
 load("./R/objects/exp_metadata._clean_.RData")
 
+# write.table(x=droplevels(exp_metadata %>% filter(type == "Kinase" | type == "Standard Mix" | type == "Wild Type") %>% select(sample_name)),quote=F, row.names=F, col.names=F,
+#             file="selected_samples.txt")
+            
+
 library(cowplot)
 library(scales)
 load("./R/objects/pathway2orf._load_.RData")
@@ -107,17 +111,14 @@ getFC_thr = function(proteins.matrix = proteins.matrix.combat, pval_thr = 0.01) 
   proteins.FC$reference = reference
   
   data = abs(proteins.FC$logFC[proteins.FC$p.value_BH < pval_thr])
-  
-  
-  
-
+    
   file_name = paste(fun_name, "getFC_thr", "pdf", sep=".")
   file_path = paste(figures_dir, file_name, sep="/")
   
   pdf(file_path, paper="a4")
   par(pty="s")
   hist(data, breaks=50, main="Expected fold changes in Standatd Mix")
-  fc_thr = max(data)
+  fc_thr = median(data)
 
   abline(v=fc_thr, lty=2)
   legend("topleft", bg=NULL, bty="n", 
@@ -136,7 +137,13 @@ proteins.FC = proteins.matrix.combat.quant.FC
 EC.genes = gene.annotations[gene.annotations$V3 == "EC number",]
 
 KEGG.pathways = distinct(pathway2orf, pathway, ORF) 
-KEGG.pathways$EC.number = EC.genes$V1[match(KEGG.pathways$ORF, EC.genes$V4)]
+
+#KEGG.pathways$EC.number = EC.genes$V1[match(KEGG.pathways$ORF, EC.genes$V4)]
+
+KEGG.pathways = merge(KEGG.pathways, select(EC.genes, V1,V4), by.x="ORF",by.y=c("V4"))
+names(KEGG.pathways)[length(KEGG.pathways)] = "EC.number"
+
+
 KEGG.pathways = droplevels(KEGG.pathways %>% filter( !is.na(EC.number)))
 KEGG.pathways = KEGG.pathways %>% group_by(ORF) %>% mutate(n = n())
 
@@ -178,7 +185,6 @@ KEGG.pathways.stats.f = KEGG.pathways.stats.f %>% group_by(B) %>% distinct(pathw
 KEGG.pathways.stats.f$pathway = factor(KEGG.pathways.stats.f$pathway, levels = as.character(KEGG.pathways.stats.f$pathway))
 
 
-
 p = ggplot(KEGG.pathways.stats.f, aes(x=pathway, y=EC.coverage, fill=B)) +
   geom_bar(stat="identity") +
   scale_x_discrete(labels = KEGG.pathways.stats.f$C ) +
@@ -201,32 +207,35 @@ p1 = ggplot(toPlot, aes(x=pathway, y=EC.coverage)) +
   geom_bar(stat="identity") +
   scale_y_continuous(labels=percent, limits = c(0,1)) +
   scale_x_discrete(labels = toPlot$C) +
-  coord_flip() + 
-  theme(aspect.ratio = 1)
+  coord_flip()
+plots.list = lappend(plots.list, p1)
 
 toPlot = droplevels(filter(KEGG.pathways.stats.f, B == "Amino acid metabolism"))
 p2 = ggplot(toPlot, aes(x=pathway, y=EC.coverage)) +
   geom_bar(stat="identity") +
   scale_y_continuous(labels=percent, limits = c(0,1)) +
   scale_x_discrete(labels = toPlot$C) +
-  coord_flip() + 
-  theme(aspect.ratio = 1)
+  coord_flip()
+plots.list = lappend(plots.list, p2)
 
 toPlot = droplevels(filter(KEGG.pathways.stats.f, B == "Energy metabolism"))
 p3 = ggplot(toPlot, aes(x=pathway, y=EC.coverage)) +
   geom_bar(stat="identity") +
   scale_y_continuous(labels=percent, limits = c(0,1)) +
   scale_x_discrete(labels = toPlot$C) +
-  coord_flip() + 
-  theme(aspect.ratio = 1)
+  coord_flip()
+plots.list = lappend(plots.list, p3)  
 
 toPlot = droplevels(filter(KEGG.pathways.stats.f, B == "Lipid metabolism"))
 p4 = ggplot(toPlot, aes(x=pathway, y=EC.coverage)) +
   geom_bar(stat="identity") +
   scale_y_continuous(labels=percent, limits = c(0,1)) +
   scale_x_discrete(labels = toPlot$C) +
-  coord_flip() + 
-  theme(aspect.ratio = 1)
+  coord_flip() 
+
+plots.list = lappend(plots.list, p4)
+
+
 
 # -- coverage: 4 together ----
 select.tmp = data.frame(cat = c("Carbohydrate metabolism", "Amino acid metabolism", "Lipid metabolism", "Energy metabolism"),
@@ -243,10 +252,7 @@ p = ggplot(toPlot, aes(x=pathway, y=EC.coverage, fill=B)) +
   geom_bar(stat="identity") +
   scale_x_discrete(labels = toPlot$C) +
   coord_flip() + theme_light()
-
 plots.list = lappend(plots.list, p)
-
-
 
 
 ## -- vulcano plot ----
@@ -307,9 +313,11 @@ proteins.FC.f = proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata
 proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
 proteins.FC.f$isEnzyme = proteins.FC.f$ORF %in% unique(EC.genes$V4)
 
+#write.table(x=proteins.FC.f %>% filter(isMetabolic == T) %>% select(ORF) %>% distinct(ORF), quote=F, row.names=F, col.names=F, file="metabolic.enzymes.txt")
+#write.table(x=unique(KEGG.pathways.f$ORF), quote=F, row.names=F, col.names=F, file="all_metabolic.enzymes.txt")
+
 toPlot = proteins.FC.f
 toPlot$sign = ifelse(abs(toPlot$logFC) >= FC_thr & toPlot$p.value_BH < pval_thr, 1,0)
-
 toPlot$label = factor(orf2name$gene_name[match(toPlot$KO, orf2name$ORF)])
 
 
@@ -319,216 +327,73 @@ p3 = ggplot(toPlot, aes(x=KO, y = logFC)) + geom_boxplot() +
           theme(axis.text.x = element_text(angle = 90, hjust = 1))
 plots.list = lappend(plots.list, p3)
 
+
 toPlot = filter(toPlot, isMetabolic==T)
 p4 = ggplot(toPlot, aes(x=KO, y = logFC)) + geom_boxplot() + 
             geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
             scale_x_discrete(labels=toPlot$label)+
-            ggtitle("Metabolic")
+            ggtitle("Metabolic") +
             theme(axis.text.x = element_text(angle = 90, hjust = 1))
 plots.list = lappend(plots.list, p4)
 
 
 
-
-pathways.FC = merge(KEGG.pathways.f, proteins.FC.f, by="ORF")
-toPlot = pathways.FC
-p = ggplot(toPlot, aes(x=C, y=logFC, fill=B)) + 
-                      geom_boxplot()
+# pathways.FC = merge(KEGG.pathways.f, proteins.FC.f, by="ORF")
+# toPlot = pathways.FC
+# p = ggplot(toPlot, aes(x=C, y=logFC, fill=B)) + 
+#                       geom_boxplot()
                       
+#coverage of essential, flux coupling
 
+load("./R/objects/essential_ORFs._load_.RData")
+load("./R/objects/flux_coupling._load_.RData")
+load("./R/objects/model_reaction2ORF._load_.RData")
 
-if(F) {
-  p_thr = 0.05
-  fc_thr = FC_thr
-  top = 1000
-  
-  tmp.f = table(droplevels(filter(proteins.FC.f, p.value_BH < p_thr, (logFC < fc_thr | logFC > fc_thr))$ORF))
-  
-  tmp.f = tmp.f[tmp.f > round(length(unique(proteins.FC.f$contrasts))/3)]
-  
-  selected = as.character(na.omit(names(sort(-tmp.f)[1:top])))
-  proteins.FC.f.selected = droplevels(filter(proteins.FC.f[proteins.FC.f$ORF %in% selected,], isMetabolic == T))
-  proteins.FC.wide = droplevels(dcast(proteins.FC.f.selected, formula=ORF~KO, value.var="logFC"))
-  
-  
-  # cor_dist = as.dist(1 - abs(cor(proteins.FC.wide[,-1])))
-  # toClust = t(proteins.FC.wide[,-1])
-  # colnames(toClust) = proteins.FC.wide$ORF
-  # cl = NbClust(data = t(proteins.FC.wide[,-1]), diss=cor_dist, distance=NULL, method="ward.D2", index=c("ch"))
-  
-  
-  cl_res = ConsensusClusterPlus(as.matrix(proteins.FC.wide[,-1]), maxK=10,
-                                reps=100, pItem=0.8, pFeature=1,finalLinkage="complete",
-                                clusterAlg="hc",distance="spearman",seed=123 )
-  
-  #cl_H = 2
-  
-  annotation = data.frame(batch_date = exp_metadata$batch_date[match(colnames(proteins.FC.wide)[-1], exp_metadata$ORF)])
-  rownames(annotation) = colnames(proteins.FC.wide)[-1]
-  annotation$clusters = factor(cl_res[[cl_V]]$consensusClass)
-  #annotation$classes = droplevels(kinase_classes$class[match(KO_types$gene[match(colnames(proteins.FC.wide)[-1], KO_types$ORF)], kinase_classes$kinase)])
-  
-  col_breaks = c(-2,-1,-0.5,0.5,1,2)
-  #col_breaks = c(0)
-  file_name = paste("heatmap_proteins.p_thr.fc_thr.top", p_thr, fc_thr, top, "pdf", sep=".")
-  file_path = paste(figures_dir, file_name, sep="/")
-  
-  aheatmap(proteins.FC.wide[,-1], annCol=annotation, 
-           Colv=cl_res[[cl_V]]$consensusTree,
-           color = paste("-RdBu", length(col_breaks)-1, sep=":"),
-           breaks = col_breaks)
-  
-  pheatmap(proteins.FC.wide[,-1])
-  
-  proteins.FC.clusters = droplevels(merge(proteins.FC.f, data.frame(KO=rownames(annotation), cl = annotation$clusters), by="KO"))
-  
-  
-  ## -- cluster enrichments ----
-  
-  enrichments = list()
-  for (i in unique(proteins.FC.clusters$cl)) {
-    for (j in c("up","down")) {
-      tmp.selected = c()
-      cluster = i
-  #     cluster = 1
-  #     j = "down"
-      if (j == "up") {
-        tmp.selected = table(droplevels(filter(proteins.FC.clusters, p.value_BH < p_thr, (logFC > fc_thr), cl == cluster)$ORF))  
-      } else {
-        tmp.selected = table(droplevels(filter(proteins.FC.clusters, p.value_BH < p_thr, (logFC < -fc_thr), cl == cluster)$ORF))  
-      }
-      
-      important_size = round(max(table(droplevels(filter(proteins.FC.clusters, cl == cluster)$ORF)))/3)
-      
-      orf_thr = names(tmp.selected[tmp.selected >= important_size])
-      orf_universe = unique(as.character(droplevels(filter(proteins.FC.clusters, cl == cluster)$ORF)))
-      
-      pathway.counts = pathway_enrichments(orf_thr=orf_thr, orf_universe=orf_universe, pathway2orf=GO_slim.process)
-      pathway.counts$cl = factor(cluster)
-      pathway.counts$direction = factor(j)
-      enrichments[[i]] = pathway.counts
-    }
-  }
-  
-  enrichments.clusters = do.call(rbind.data.frame, enrichments)
-  
-}
+essential_all = unique(as.character(essential_ORFs$ORF_name[essential_ORFs$ORF_name %in% KEGG.pathways.f$ORF]))
+EC.essential_all = merge(data.frame(essential_all), select(EC.genes, V1,V4), by.y=c("V4"), by.x="essential_all")
+names(EC.essential_all) = c("ORF", "EC.number")
 
-#View(enrichments.clusters[enrichments.clusters$p.value <0.05,])
+coupled_reactions = as.character(unique(flux_coupling$reactions[grep(pattern="DIR|FULLY", ignore.case=T, x=flux_coupling$biomass)]))
+couplings = merge(na.omit(model_reaction2ORF), data.frame(coupled_reactions), by.x = "reaction", by.y = "coupled_reactions")
 
-## ---- protein variations ----
-if (F) {
-  
-  proteins.long.ko_mean = proteins.long %>% 
-    group_by(KO, ORF) %>%
-    summarise(signal = mean(value))
-  
-  proteins.long.ko_mean = proteins.long.ko_mean[grep("none", proteins.long.ko_mean$KO, ignore.case=T, invert=T),]
-  
-  proteins.ko_mean = dcast(proteins.long.ko_mean, ORF~KO, value.var="signal")
-  
-  proteins.matrix.ko_mean = as.matrix(proteins.ko_mean[,-1])
-  rownames(proteins.matrix.ko_mean) = proteins.ko_mean$ORF
-  
-  proteins.cv.variation = apply(proteins.matrix.ko_mean, 1, 
-                                FUN=function(x) {
-                                  sqrt(exp(sd(x)^2)-1)        
-                                } )
-  
-  
-  #proteins variation
-  toPlot=data.frame(ORF=names(proteins.cv.variation), 
-                    cv.variation = proteins.cv.variation) 
-  p = ggplot(data=toPlot, aes(x=cv.variation)) +
-    geom_histogram(binwidth=0.05, fill="white", colour="black") +
-    xlab("Coefficient of variation of protein intensity across all KO") +
-    theme(axis.title=element_text(size=20),
-          axis.text=element_text(size=14),
-          aspect.ratio = 1)
-  plots.list = lappend(plots.list, p)
-  
-  upper = 0.95
-  lower = 0.05
-  signal_upper = names(proteins.cv.variation[proteins.cv.variation > quantile(proteins.cv.variation,upper)])
-  signal_lower = names(proteins.cv.variation[proteins.cv.variation < quantile(proteins.cv.variation,lower)])
-  universe  = names(proteins.cv.variation)
-  
-  proteins.z_scores = apply(proteins.matrix.ko_mean, 1, 
-                            FUN=function(x) {
-                              unlog_x = exp(x)
-                              sd.unlog_x = sd(unlog_x,na.rm=T)
-                              mean.unlog_x = mean(unlog_x)
-                              
-                              sd.log = sqrt(log(1+sd.unlog_x^2/mean.unlog_x^2))
-                              mean.log = log(mean.unlog_x)-0.5*sd.log^2
-                              z.log = (x - mean.log)/sd.log
-                              return(z.log)
-                            } )
-  
-  
-  
-  #write.table(unique(colnames(proteins.z_scores)), file="proteins.txt", quote=F, row.names=F, col.names=F)
-  mutants.z_sums = apply(proteins.z_scores, 1,
-                         FUN=function(x) {
-                           sum(abs(x))
-                         })
-  
-  hist(mutants.z_sums, breaks=30, xlim=c(400,2000))
-  points(mutants.z_sums[names(mutants.z_sums)=="WT"], 2, col="red", pch=20)
-  points(mutants.z_sums[names(mutants.z_sums)=="YPL115C"], 2, col="red", pch=20)
-  points(mutants.z_sums[names(mutants.z_sums)=="YPL185W"], 2, col="red", pch=20)
-  
-  text(mutants.z_sums[names(mutants.z_sums)=="WT"], 3, labels="WT")
-}
+couplings = merge(couplings, select(EC.genes, V1,V4), by.y=c("V4"), by.x="ORF")
+names(couplings) = c("ORF", "reaction", "EC.number")
 
+measured.ORFs = merge(measured.ORFs, model_reaction2ORF, all.x=T)
 
-## ---- comprarison with PPI network ----
-if (F) {
-  load("./R/objects/BIOGRID.ORGANISM.RData")
-  
-  
-  BIOGRID.ORGANISM = tbl_df(BIOGRID.ORGANISM)
-  BIOGRID.ORGANISM$Pubmed.ID = factor(BIOGRID.ORGANISM$Pubmed.ID)
-  interactions = BIOGRID.ORGANISM %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B,Experimental.System, Experimental.System.Type, Pubmed.ID)
-  
-  interactions.p = filter(interactions, Experimental.System.Type == "physical") %>% distinct(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)
-  interactions.g = filter(interactions, Experimental.System.Type == "genetic") %>% distinct(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)
-  G.phys = graph.data.frame(dplyr::select(interactions.p, Systematic.Name.Interactor.A, Systematic.Name.Interactor.B), directed=F)
-  G.gene = graph.data.frame(dplyr::select(interactions.g, Systematic.Name.Interactor.A, Systematic.Name.Interactor.B), directed=F)
-  
-  
-  proteins.FC.sums = proteins.FC.clusters %>% group_by(KO) %>% summarize(perturbation = sum(abs(logFC)))
-  
-  tmp = data.frame(KO = names(mutants.z_sums), 
-                   perturb = proteins.FC.sums$perturbation[match(names(mutants.z_sums), proteins.FC.sums$KO)],
-                   z_sums = mutants.z_sums, 
-                   degree.phys = degree(G.phys)[match(names(mutants.z_sums), names(degree(G.phys)))],
-                   degree.gene = degree(G.gene)[match(names(mutants.z_sums), names(degree(G.gene)))])
-  
-  
-  proteins.z_scores.long = melt(proteins.z_scores, id.vars=row.names)
-  names(proteins.z_scores.long) = c("KO", "ORF", "value")
-  all_enrichments = ddply(proteins.z_scores.long, .(KO), 
-                          .fun = function(z) {
-                            #z = proteins.z_scores.long[proteins.z_scores.long$KO == "WT",]
-                            signal = z$ORF[abs(z$value) >= 1.98]
-                            universe =  z$ORF
+coverage.stats = data.frame(essential_ORF = sum(unique(rownames(protein.matrix)) %in% essential_all),
+                            total_essental_ORF = length(unique(essential_all)),
+                            essential_EC = sum(unique(measured.ORFs$EC.number) %in% unique(EC.essential_all$EC.number)),
+                            total_essential_EC = length(unique(EC.essential_all$EC.number)),
                             
-                            tmp.p = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=GO_slim.process)
-                            tmp.p$type = "process"
-                            tmp.f = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=GO_slim.function)
-                            tmp.f$type = "function"
-                            tmp.c = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=GO_slim.compartment)
-                            tmp.c$type = "compartment"
-                            tmp.path = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=pathway2orf)
-                            tmp.path$type = "kegg_pathways"
+                            coupled_ORF = sum(unique(rownames(protein.matrix)) %in% unique(couplings$ORF)),
+                            total_coupled_ORF = length(unique(couplings$ORF)),
                             
-                            return(rbind(tmp.p, tmp.c, tmp.c, tmp.path))
+                            coupled_EC = sum(unique(measured.ORFs$EC.number) %in% unique(couplings$EC.number)),
+                            total_coupled_EC = length(unique(couplings$EC.number)),
                             
-                          })
-  
-}
+                            coupled_reactions = sum(unique(measured.ORFs$EC.nu) %in% unique(couplings$EC.number)),
+                            total_coupled_EC = length(unique(couplings$EC.number))  )
 
+
+coverage.stats$fraction_essential_ORF = with(coverage.stats, essential_ORF/total_essental_ORF)
+coverage.stats$fraction_essential_EC  = with(coverage.stats, essential_EC/total_essential_EC)
+coverage.stats$fraction_coupled_ORF  = with(coverage.stats, coupled_ORF/total_coupled_ORF)
+coverage.stats$fraction_coupled_EC  = with(coverage.stats, coupled_EC/total_coupled_EC)
+
+tmp.df = data.frame(fraction = t(coverage.stats %>% select(fraction_essential_ORF, fraction_essential_EC, fraction_coupled_ORF, fraction_coupled_EC)),
+                    type="present")
+tmp.df$id = rownames(tmp.df)
+
+coverage.fractions = rbind(tmp.df, data.frame(fraction = (1 - tmp.df[,1]), type = "absent", id = rownames(tmp.df)))
+
+
+p = ggplot(coverage.fractions, aes(x = "" , y = fraction, fill = type)) +
+           geom_bar(width = 1, stat = "identity") +
+           scale_fill_manual(values = c("red", "yellow")) +
+           coord_polar("y") + facet_grid(~id)
+
+plots.list = lappend(plots.list, p)
 
 ## -- comparison all vs all protein changes ----
 
@@ -544,21 +409,16 @@ comparisons = tmp.names
 
 # -- PPI similarities with intersection --
 
-load("./R/objects/yeast.ppi._load_.RData")
-yeast.ppi = tbl_df(yeast.ppi)
+string.exp = STRING %>% filter(experimental > 900)
+string.all = STRING %>% filter(combined_score > 900)
 
-yeast.ppi.p = droplevels(yeast.ppi %>% filter(Author == "Breitkreutz A (2010)", Experimental.System.Type == "physical") %>% distinct(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B))
-yeast.ppi.g = droplevels(yeast.ppi %>% filter(Author == "Costanzo M (2010)", Experimental.System.Type == "genetic") %>% distinct(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B))
-
-
-
-G.phys = graph.data.frame(droplevels(yeast.ppi.p %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
-G.gene = graph.data.frame(droplevels(yeast.ppi.g %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
-
+G.string.exp = graph.data.frame(droplevels(string.exp %>% dplyr::select(ORF1, ORF2)), directed=F)
+G.string.all = graph.data.frame(droplevels(string.all %>% dplyr::select(ORF1, ORF2)), directed=F)
+GRAPH = G.string.exp
+GRAPH.all = G.string.all
 
 #names(comparisons) = c("KO1", "KO2")
 
-padj_thr = pval_thr
 
 int_abs = rep(0, nrow(comparisons))
 int_up = rep(0, nrow(comparisons))
@@ -575,8 +435,8 @@ for (i in 1:nrow(comparisons)) {
   KO1 = pair[1]
   KO2 = pair[2]
   
-  KO1_changed = filter(proteins.FC.f, isMetabolic == T, KO == KO1, p.value_BH < padj_thr)
-  KO2_changed = filter(proteins.FC.f, KO == KO2, p.value_BH < padj_thr)
+  KO1_changed = filter(proteins.FC.f, isMetabolic == T, KO == KO1, p.value_BH < pval_thr)
+  KO2_changed = filter(proteins.FC.f, isMetabolic == T, KO == KO2, p.value_BH < pval_thr)
   
   int_abs[i]   = length(intersect(KO1_changed$ORF[abs(KO1_changed$logFC) > FC_thr ], KO2_changed$ORF[abs(KO2_changed$logFC) > FC_thr ]))
   int_up[i]    = length(intersect(KO1_changed$ORF[KO1_changed$logFC > FC_thr ], KO2_changed$ORF[KO2_changed$logFC > FC_thr ]))
@@ -585,14 +445,16 @@ for (i in 1:nrow(comparisons)) {
   union_up[i]  = length(union(KO1_changed$ORF[KO1_changed$logFC > FC_thr ], KO2_changed$ORF[KO2_changed$logFC > FC_thr ]))
   union_down[i] = length(union(KO1_changed$ORF[KO1_changed$logFC < -FC_thr ], KO2_changed$ORF[KO2_changed$logFC < -FC_thr ]))
   
-#    if (KO1 %in% V(GRAPH)$name & KO2 %in% V(GRAPH)$name) {
-#      int_ppi[i] = length(intersect(V(GRAPH)$name[neighbors(GRAPH,v=KO1)], V(GRAPH)$name[neighbors(GRAPH,v=KO2)]))
-#    } else {
-#      int_ppi[i] = NA  
-#    } 
+  if (KO1 %in% V(GRAPH)$name & KO2 %in% V(GRAPH)$name) {
+      int_ppi[i] = length(intersect(V(GRAPH)$name[neighbors(GRAPH,v=KO1)], V(GRAPH)$name[neighbors(GRAPH,v=KO2)]))
+  } else {
+    int_ppi[i] = NA  
+  } 
 }
 
+
 comparisons.df = as.data.frame(cbind(comparisons, int_abs, int_up, int_down, union_abs, union_up, union_down, int_ppi))
+
 
 #making matrix all vs all
 
@@ -620,11 +482,8 @@ comparisons.matrix = matrix(as.numeric(comparisons.matrix.tmp), ncol=ncol(compar
 colnames(comparisons.matrix) = colnames(comparisons.matrix.tmp)
 rownames(comparisons.matrix) = rownames(comparisons.matrix.tmp)
 
-
 #ppi
-
 tmp = dcast(comparisons.df, formula=V1~V2, value.var="int_ppi")
-
 name.tmp = as.character(tmp$V1[1])
 tmp.extraCol = cbind(NA,tmp[,-1])
 colnames(tmp.extraCol)[1] = name.tmp
@@ -645,93 +504,96 @@ comparisons.matrix.ppi = matrix(as.numeric(comparisons.matrix.tmp), ncol=ncol(co
 colnames(comparisons.matrix.ppi) = colnames(comparisons.matrix.tmp)
 rownames(comparisons.matrix.ppi) = rownames(comparisons.matrix.tmp)
 
-library(ade4)
-mantel.rtest(as.dist(comparisons.matrix.ppi), as.dist(comparisons.matrix))
-
-
-cl_res = ConsensusClusterPlus(comparisons.matrix, maxK=6,
-                              reps=1000, pItem=0.9, pFeature=1,
-                              clusterAlg="hc",seed=123 )
-
-
-
-
-
-
-tmp = melt(comparisons.matrix, formula=rownames(comparisons.matrix)~colnames(comparisons.matrix))
-
-hcl = hclust(dist(comparisons.matrix))
-tmp$X1 = factor(tmp$X1, levels = hcl$labels[hcl$order])
-tmp$X2 = factor(tmp$X2, levels = hcl$labels[hcl$order])
-
-ggplot(tmp,aes(x=X1, y=X2, fill=value)) + geom_tile()
-
 ##-- heatmap of intersection ----
 
-col_breaks = sort(c(seq(0,100,10),5))
 toPlot = comparisons.matrix
 
-cl_V = 3
-
-
-
 annotation = data.frame(class = droplevels(kinase_classes$class[match(colnames(toPlot), kinase_classes$ORF)]),
-                        batch_date = exp_metadata$batch_date[match(colnames(toPlot), exp_metadata$ORF)],
-                        clusters = factor(cl_res[[cl_V]]$consensusClass))
+                        batch_date = exp_metadata$batch_date[match(colnames(toPlot), exp_metadata$ORF)])
+
 annotation$class = as.character(annotation$class)
 annotation$class[is.na(annotation$class)] = "unclassified"
 annotation$class = factor(annotation$class)
 
-
-colnames(toPlot) = exp_metadata$gene[match(colnames(toPlot), exp_metadata$ORF)]
 rownames(toPlot) = exp_metadata$gene[match(rownames(toPlot), exp_metadata$ORF)]
+colnames(toPlot) = exp_metadata$gene[match(colnames(toPlot), exp_metadata$ORF)]
 
-#toPlot[is.infinite(toPlot)] = 0
-#toPlot[toPlot >= max(col_breaks)] = max(col_breaks)
+file_name = paste("metabolic_intersections", "heatmap.pdf", sep=".")
+file_path = paste(figures_dir, file_name, sep="/")
 
-annot_Rnames =  colnames(toPlot)
-rownames(annotation) = annot_Rnames
-#TODO: union set with all mutants
-pheatmap(toPlot, breaks=col_breaks, annotation_col=annotation, color=brewer.pal(n=length(col_breaks)-1, name="Greys"))
+parts = 4
+S = pheatmap(toPlot,  annotation_col=annotation, cutree_cols=parts, cutree_rows=parts, colorRampPalette(c("white", "black"))(10), 
+             cellwidth = 8, cellheight = 8, filename=file_path)
 
-parts = 3
-S = pheatmap(toPlot,  annotation_col=annotation, cutree_cols=parts, colorRampPalette(c("white", "black"))(10))
+proteins.FC.f.stats = proteins.FC.f %>% filter(isMetabolic = T, p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% group_by(KO) %>% summarize(n=n())
+proteins.FC.f.stats$gene_name = exp_metadata$gene[match(proteins.FC.f.stats$KO, exp_metadata$ORF)]
+proteins.FC.f.stats$gene_name = factor(proteins.FC.f.stats$gene_name, levels = levels(tmp$X2))
+
+p1 = ggplot(tmp, aes(x=X1, y=X2, fill=value.x)) + 
+            geom_tile() + 
+            geom_segment(aes(x = 0, y = 0, xend = 0, yend = 5), col="blue", size=2) +
+            theme(aspect.ratio = 1, legend.position="none")
+
+p2 = ggplot(proteins.FC.f.stats, aes(x=gene_name, y=n)) + 
+      geom_bar(stat="identity", width=.5) + 
+      coord_flip() +
+      theme_classic()
+
+file_name = paste("metabolic_sets", "barplot.pdf", sep=".")
+file_path = paste(figures_dir, file_name, sep="/")
+ggsave(p2, filename=file_path, width=8.27, height=11.69)
 
 
-
-#cutting to 3 parts
+#cutting to 4 parts
 KO.stats = data.frame(KO = droplevels(exp_metadata$ORF[match(names(cutree(S$tree_col,parts)), exp_metadata$gene)]))
 KO.stats$cluster = factor(cutree(S$tree_col,parts))
-
-KO.stats$degree.p = degree(G.phys)[match(KO.stats$KO, names(degree(G.phys)))]
-KO.stats$degree.g = degree(G.gene)[match(KO.stats$KO, names(degree(G.gene)))]
-
-annotation$cl = KO.stats$cluster
-annotation$clusters = NULL
-
-pheatmap(toPlot,  annotation_col=annotation, 
-             cutree_cols=parts)
-
-p = recordPlot()
-plots.list = lappend(plots.list, p)
-
-
+KO.stats$degree = degree(GRAPH)[match(KO.stats$KO, names(degree(GRAPH)))]
+KO.stats$degree.all = degree(GRAPH.all)[match(KO.stats$KO, names(degree(GRAPH.all)))]
 
 p = ggplot(melt(KO.stats, id.vars=c("KO", "cluster")), aes(fill=variable, x=cluster, y=value)) +
-          geom_boxplot()
+          geom_boxplot() 
+
 plots.list = lappend(plots.list, p)
 
-
-proteins.FC$KO_gene = exp_metadata$gene[match(proteins.FC$KO, exp_metadata$ORF)]
-proteins.FC$KO_type = exp_metadata$Type[match(proteins.FC$KO, exp_metadata$ORF)]
-proteins.FC$KO_class = as.character(kinase_classes$class[match(proteins.FC$KO, kinase_classes$ORF)])
-proteins.FC$KO_class[is.na(proteins.FC$KO_class)] = "unclassified"
-proteins.FC$KO_class = factor(proteins.FC$KO_class)
-
 ## -- changes per kinase class ----
-proteins.FC.classes.stats = proteins.FC %>% group_by(KO, KO_class) %>% summarise(changes = sum(p.value_BH <padj_thr))
+proteins.FC.f$KO_gene = exp_metadata$gene[match(proteins.FC.f$KO, exp_metadata$ORF)]
+
+proteins.FC.f$degree = degree(GRAPH)[match(proteins.FC.f$KO, names(degree(GRAPH)))]
+proteins.FC.f$degree.all = degree(GRAPH.all)[match(proteins.FC.f$KO, names(degree(GRAPH.all)))]
+proteins.FC.f$cluster = factor(cutree(S$tree_col,parts)[match(proteins.FC.f$KO_gene, names(cutree(S$tree_col,parts)))])
+proteins.FC.f$KO_type = exp_metadata$Type[match(proteins.FC.f$KO, exp_metadata$ORF)]
+proteins.FC.f$KO_class = as.character(kinase_classes$class[match(proteins.FC.f$KO, kinase_classes$ORF)])
+proteins.FC.f$KO_class[is.na(proteins.FC.f$KO_class)] = "unclassified"
+proteins.FC.f$KO_class = factor(proteins.FC.f$KO_class)
+
+
+proteins.FC.classes.stats = proteins.FC.f %>% filter(isMetabolic == T, p.value_BH < pval_thr, abs(logFC) > FC_thr ) %>% 
+                            group_by(KO, KO_class) %>% summarise(changes = n(),
+                                                                 degree = degree[1])
+p = ggplot(proteins.FC.classes.stats, aes(x=KO_class, y=degree)) +
+      geom_boxplot() +
+      geom_point(data=proteins.FC.classes.stats, aes(x=jitter(as.numeric(KO_class))))
+plots.list = lappend(plots.list, p)
+
 p = ggplot(proteins.FC.classes.stats, aes(x=KO_class, y=changes)) +
-      geom_boxplot()
+      geom_boxplot() +
+      geom_point(data=proteins.FC.classes.stats, aes(x=jitter(as.numeric(KO_class))))
+plots.list = lappend(plots.list, p)
+
+proteins.FC.clusters.stats = proteins.FC.f %>% filter(isMetabolic == T, p.value_BH < pval_thr, abs(logFC) > FC_thr ) %>% 
+                             group_by(KO, cluster) %>% summarise(changes = n(),
+                                                                 degree = degree[1])
+
+p = ggplot(proteins.FC.clusters.stats, aes(x=cluster, y=changes)) +
+          geom_boxplot() +
+          geom_point(data=proteins.FC.clusters.stats, aes(x=jitter(as.numeric(cluster))))
+
+plots.list = lappend(plots.list, p)
+
+p = ggplot(proteins.FC.clusters.stats, aes(x=cluster, y=degree)) +
+  geom_boxplot() +
+  geom_point(data=proteins.FC.clusters.stats, aes(x=jitter(as.numeric(cluster))))
+plots.list = lappend(plots.list, p)
 
 plots.list = lappend(plots.list, p)
 
@@ -744,29 +606,27 @@ plots.list = lappend(plots.list, p)
 # -- enrichments of changed genes ----- 
 
 #orf2name = gene.annotations %>% distinct(V4, V6) %>% dplyr::select(V4, V6)
-
+enrich_thr = 0.05
 proteins.FC = tbl_df(proteins.FC)
 proteins.FC$KO = factor(proteins.FC$KO)
 
-all_enrichments = ddply(proteins.FC, .(KO), 
+all_enrichments = ddply(filter(proteins.FC.f, isMetabolic==T), .(KO), 
                         .fun = function(z) {
                           #z = proteins.z_scores.long[proteins.z_scores.long$KO == "WT",]
-                          signal = z$ORF[abs(z$p.value_BH)< 0.05]
+                          signal = z$ORF[z$p.value_BH < pval_thr & abs(z$logFC) > FC_thr]
                           universe =  z$ORF              
-                          tmp.p = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=GO_slim.process)
-                          tmp.p$type = "process"
-                          tmp.f = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=GO_slim.function)
-                          tmp.f$type = "function"
-                          tmp.c = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=GO_slim.compartment)
-                          tmp.c$type = "compartment"
-                          tmp.path = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=pathway2orf)
+#                           tmp.p = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=GO_slim.process)
+#                           tmp.p$type = "process"
+#                           tmp.f = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=GO_slim.function)
+#                           tmp.f$type = "function"
+#                           tmp.c = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=GO_slim.compartment)
+                          #tmp.c$type = "compartment"
+                          tmp.path = pathway_enrichments(orf_thr=signal, orf_universe=universe, pathway2orf=pathway2orf[pathway2orf$pathway %in% KEGG.pathways.f$pathway,])
                           tmp.path$type = "kegg_pathways"
                         
-                          return(rbind(tmp.p, tmp.c, tmp.c, tmp.path))
+                          return(tmp.path)
                           
                         })
-
-enrich_thr = 0.05
 
 #kegg
 kegg.enrichments = dcast(droplevels(all_enrichments[all_enrichments$type == "kegg_pathways",]), pathway~KO, value.var="p.value")
@@ -776,7 +636,8 @@ rownames(kegg.enrichments.matrix) = kegg.enrichments$pathway
 kegg.enrichments.matrix[is.na(kegg.enrichments.matrix)] = 0
 kegg.enrichments.matrix[kegg.enrichments.matrix > enrich_thr] = 0
 kegg.enrichments.matrix[kegg.enrichments.matrix != 0] = 1
-kegg.enrichments.matrix = kegg.enrichments.matrix[rowSums(kegg.enrichments.matrix) > 3,]
+kegg.enrichments.matrix = kegg.enrichments.matrix[rowSums(kegg.enrichments.matrix) > 1,]
+kegg.enrichments.matrix = kegg.enrichments.matrix[,colSums(kegg.enrichments.matrix) > 1]
 
 pathway2desription = pathway2orf %>% distinct(pathway, description) %>% dplyr::select(pathway, description)
 pathway2desription$description = sub(pattern=" - Saccharomyces cerevisiae (budding yeast)", replacement="" , x=pathway2desription$description, fixed=T)
@@ -786,74 +647,73 @@ kegg.enrichments.matrix.kinases = kegg.enrichments.matrix[,colnames(kegg.enrichm
 toPlot = kegg.enrichments.matrix.kinases
 colnames(toPlot) = exp_metadata$gene[match(colnames(toPlot), exp_metadata$ORF)]
 
+file_name = paste("kegg_enrichments", "heatmap.pdf", sep=".")
+file_path = paste(figures_dir, file_name, sep="/")
+
 pheatmap(toPlot, clustering_distance_cols="binary", clustering_distance_rows="binary", 
-         cluster_rows=T, col=c("lightgrey","black"),annotation = annotation, legend=F,
-         labels_row=pathway2desription$description[match(rownames(toPlot), pathway2desription$pathway)],)
+         cluster_rows=T, col=c("lightgrey","black"),legend=F, cellwidth = 8, cellheight = 8,
+         labels_row=pathway2desription$description[match(rownames(toPlot), pathway2desription$pathway)], filename=file_path)
          
-p = recordPlot()
-plots.list = lappend(plots.list, p)
 
-
-
-#GO slim process
-process.enrichments = dcast(droplevels(all_enrichments[all_enrichments$type == "process",]),pathway~KO, value.var="p.value", fun.aggregate=min)
-process.enrichments.matrix = as.matrix(process.enrichments[,-1])
-rownames(process.enrichments.matrix) = process.enrichments$pathway
-
-process.enrichments.matrix[is.na(process.enrichments.matrix)] = 0
-process.enrichments.matrix[process.enrichments.matrix > enrich_thr] = 0
-process.enrichments.matrix[process.enrichments.matrix != 0] = 1
-process.enrichments.matrix = process.enrichments.matrix[rowSums(process.enrichments.matrix) >3,]
-
-GOprocess2desription = GO_slim.process %>% distinct(pathway, description) %>% dplyr::select(pathway, description)
-
-process.enrichments.matrix.kinases = process.enrichments.matrix[,colnames(process.enrichments.matrix) %in% kinases]
-toPlot = process.enrichments.matrix.kinases
-colnames(toPlot) = exp_metadata$gene[match(colnames(toPlot), exp_metadata$ORF)]
-
-pheatmap(toPlot, clustering_distance_cols="binary",  clustering_distance_rows="binary", cluster_rows=T,
-         labels_row = GOprocess2desription$description[match(rownames(process.enrichments.matrix), GOprocess2desription$pathway)],col=c("lightgrey","black"),annotation = annotation)
-       
-p = recordPlot()
-plots.list = lappend(plots.list, p)
+# #GO slim process
+# process.enrichments = dcast(droplevels(all_enrichments[all_enrichments$type == "process",]),pathway~KO, value.var="p.value", fun.aggregate=min)
+# process.enrichments.matrix = as.matrix(process.enrichments[,-1])
+# rownames(process.enrichments.matrix) = process.enrichments$pathway
+# 
+# process.enrichments.matrix[is.na(process.enrichments.matrix)] = 0
+# process.enrichments.matrix[process.enrichments.matrix > enrich_thr] = 0
+# process.enrichments.matrix[process.enrichments.matrix != 0] = 1
+# process.enrichments.matrix = process.enrichments.matrix[rowSums(process.enrichments.matrix) >3,]
+# 
+# GOprocess2desription = GO_slim.process %>% distinct(pathway, description) %>% dplyr::select(pathway, description)
+# 
+# process.enrichments.matrix.kinases = process.enrichments.matrix[,colnames(process.enrichments.matrix) %in% kinases]
+# toPlot = process.enrichments.matrix.kinases
+# colnames(toPlot) = exp_metadata$gene[match(colnames(toPlot), exp_metadata$ORF)]
+# 
+# pheatmap(toPlot, clustering_distance_cols="binary",  clustering_distance_rows="binary", cluster_rows=T,
+#          labels_row = GOprocess2desription$description[match(rownames(process.enrichments.matrix), GOprocess2desription$pathway)],col=c("lightgrey","black"),annotation = annotation)
+#        
+# p = recordPlot()
+# plots.list = lappend(plots.list, p)
 
 
 #PCA by pathways
-proteins.FC.kegg = tbl_df(merge(proteins.FC, pathway2orf, by="ORF"))
-proteins.FC.kegg.fractions = proteins.FC.kegg %>% group_by(KO, pathway) %>% summarise(pathway.fraction = sum(p.value_BH < 0.05)/length(p.value_BH))
-
-kegg.fractions = dcast(proteins.FC.kegg.fractions, formula=pathway~KO, value.var="pathway.fraction")
-kegg.fractions.matrix = as.matrix(kegg.fractions[,-1])
-rownames(kegg.fractions.matrix) = kegg.fractions$pathway
-kegg.fractions.matrix = kegg.fractions.matrix[rowSums(kegg.fractions.matrix) != 0,]
-
-toPlot = kegg.fractions.matrix[,colnames(kegg.fractions.matrix) %in% kinases]
-
-rownames(toPlot) = pathway2desription$description[match(rownames(toPlot), pathway2desription$pathway)]
-colnames(toPlot) = exp_metadata$gene[match(colnames(toPlot), exp_metadata$ORF)]
-s1 = prcomp(t(toPlot))
-biplot(s1, cex=0.66)
-abline(h=0,v=0)
-l1 = sort(s1$rotation[,1],decreasing=T)
-l2 = sort(S1$rotation[,2], decreasing=T)
-p = recordPlot()
-biplot.default
-
-xPC = 1
-yPC = 2
-idx = match(unique(names(sort(abs(c(s1$rotation[,1], s1$rotation[,2])),decreasing=T)[1:20])), rownames(s1$rotation))
-loads = s1$rotation[idx,c(xPC,yPC)]
-
-biplot(x=s1$x[,c(xPC,yPC)],y=loads, cex=0.66, ylim = c(-3,2),expand=1.5,
-     xlab=paste(paste0("PC",xPC), round(s1$sdev[xPC]^2/sum(s1$sdev^2),2)),
-     ylab=paste(paste0("PC",yPC), round(s1$sdev[yPC]^2/sum(s1$sdev^2),2)))
-abline(h=0,v=0)
-p = recordPlot()
-plots.list = lappend(plots.list, p)
-
-file_name = paste(fun_name, "report.pdf", sep=".")
-file_path = paste(figures_dir, file_name, sep="/")
-save_plots(plots.list, filename=file_path, type="l")
+# proteins.FC.kegg = tbl_df(merge(proteins.FC, pathway2orf, by="ORF"))
+# proteins.FC.kegg.fractions = proteins.FC.kegg %>% group_by(KO, pathway) %>% summarise(pathway.fraction = sum(p.value_BH < 0.05)/length(p.value_BH))
+# 
+# kegg.fractions = dcast(proteins.FC.kegg.fractions, formula=pathway~KO, value.var="pathway.fraction")
+# kegg.fractions.matrix = as.matrix(kegg.fractions[,-1])
+# rownames(kegg.fractions.matrix) = kegg.fractions$pathway
+# kegg.fractions.matrix = kegg.fractions.matrix[rowSums(kegg.fractions.matrix) != 0,]
+# 
+# toPlot = kegg.fractions.matrix[,colnames(kegg.fractions.matrix) %in% kinases]
+# 
+# rownames(toPlot) = pathway2desription$description[match(rownames(toPlot), pathway2desription$pathway)]
+# colnames(toPlot) = exp_metadata$gene[match(colnames(toPlot), exp_metadata$ORF)]
+# s1 = prcomp(t(toPlot))
+# biplot(s1, cex=0.66)
+# abline(h=0,v=0)
+# l1 = sort(s1$rotation[,1],decreasing=T)
+# l2 = sort(S1$rotation[,2], decreasing=T)
+# p = recordPlot()
+# biplot.default
+# 
+# xPC = 1
+# yPC = 2
+# idx = match(unique(names(sort(abs(c(s1$rotation[,1], s1$rotation[,2])),decreasing=T)[1:20])), rownames(s1$rotation))
+# loads = s1$rotation[idx,c(xPC,yPC)]
+# 
+# biplot(x=s1$x[,c(xPC,yPC)],y=loads, cex=0.66, ylim = c(-3,2),expand=1.5,
+#      xlab=paste(paste0("PC",xPC), round(s1$sdev[xPC]^2/sum(s1$sdev^2),2)),
+#      ylab=paste(paste0("PC",yPC), round(s1$sdev[yPC]^2/sum(s1$sdev^2),2)))
+# abline(h=0,v=0)
+# p = recordPlot()
+# plots.list = lappend(plots.list, p)
+# 
+# file_name = paste(fun_name, "report.pdf", sep=".")
+# file_path = paste(figures_dir, file_name, sep="/")
+# save_plots(plots.list, filename=file_path, type="l")
 
 ## -- perturbation vs shortest pathways ---- 
 
@@ -889,53 +749,63 @@ yeast.ppi.g = droplevels(yeast.ppi %>% filter(Author == "Costanzo M (2010)", Exp
 string.exp = STRING %>% filter(experimental > 900)
 string.all = STRING %>% filter(combined_score > 900)
 
-
 G.string.exp = graph.data.frame(droplevels(string.exp %>% dplyr::select(ORF1, ORF2)), directed=F)
 G.string.all = graph.data.frame(droplevels(string.all %>% dplyr::select(ORF1, ORF2)), directed=F)
+GRAPH = G.string.exp
 
 G.phys = graph.data.frame(droplevels(yeast.ppi.p %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
 G.gene = graph.data.frame(droplevels(yeast.ppi.g %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
-#G.phys.all  = graph.data.frame(droplevels(yeast.ppi.p.all %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
-#G.gene.all  = graph.data.frame(droplevels(yeast.ppi.g.all %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
+G.phys.all  = graph.data.frame(droplevels(yeast.ppi.p.all %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
+G.gene.all  = graph.data.frame(droplevels(yeast.ppi.g.all %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
 
 
 proteins.FC.f = droplevels(proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),])
 proteins.FC.f$sign = ifelse(abs(proteins.FC.f$logFC) >= FC_thr & proteins.FC.f$p.value_BH < pval_thr, 1,0)
 proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
 proteins.FC.f$isEnzyme = proteins.FC.f$ORF %in% unique(EC.genes$V4)
-
-proteins.FC.f.stats = proteins.FC.f %>% filter(isMetabolic == T) %>% group_by(KO) %>% dplyr::summarise(changes = sum(sign==1),
-                                                                          perturbation = sum(abs(logFC[p.value_BH < pval_thr])))
+#proteins.FC.f$cluster = factor(cutree(S$tree_col,parts)[match(proteins.FC.f$KO_gene, names(cutree(S$tree_col,parts)))])
 
 
+proteins.FC.f.stats = proteins.FC.f %>% filter(isMetabolic = T, p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% 
+                      group_by(KO) %>% dplyr::summarise(changes = n(),
+                                                        perturbation = sum(abs(logFC)))
 
-proteins.FC.f.stats$KO %in% unique(as.vector(GO_slim.raw$V1[grep(x=GO_slim.raw$V5, pattern="transcription factor activity")]))
-proteins.FC.f.stats$KO %in% unique(yeastract)
+
+
+#proteins.FC.f.stats$KO %in% unique(as.vector(GO_slim.raw$V1[grep(x=GO_slim.raw$V5, pattern="transcription factor activity")]))
+#proteins.FC.f.stats$KO %in% unique(yeastract)
 
 yeastract$TF_ORF = orf2name$ORF[match(yeastract$TF, orf2name$gene_name)]
 
-yeastract.stats = yeastract %>% group_by(TF, TF_ORF) %>% summarise(n = n())
+yeastract.stats = yeastract %>% group_by(TF, TF_ORF) %>% summarise(n = n()) #number of genes yeastract connected to
 
 TFs = unique(as.vector(GO_slim.raw$V1[grep(x=GO_slim.raw$V5, pattern="nucleic acid binding transcription factor activity")]))
 
-GRAPH = G.string.exp
-phys.TF_ORFs = TFs[TFs %in% V(GRAPH)$name]
+#write.table(x=unique(rownames(protein.matrix)), file="proteins.txt",  quote=F, row.names=F, col.names=F)
 
-kinases = unique(proteins.FC.f.stats$KO)[unique(proteins.FC.f.stats$KO) %in% V(GRAPH)$name]
-paths = shortest.paths(GRAPH, v=kinases ,  to=phys.TF_ORFs)
+phys.TF_ORFs = as.character(TFs[TFs %in% V(GRAPH)$name])
+kinases = as.character(unique(proteins.FC.f.stats$KO)[unique(proteins.FC.f.stats$KO) %in% V(GRAPH)$name])
+
+paths = igraph::shortest.paths(graph=GRAPH, v=kinases,  to=phys.TF_ORFs, algorithm="unweighted")
+
 paths.all = get.all.shortest.paths(GRAPH, from=kinases, to=phys.TF_ORFs)
+
+
 
 min.paths = apply(paths, 1, min)
 min.paths[is.infinite(min.paths)] = NA
 
 paths.long = melt(paths) 
 names(paths.long) = c("KO", "TF","value")
+paths.long$value[is.infinite(paths.long$value)] = NA
+
 paths.long.stats = paths.long %>% group_by(KO) %>% summarise( mean.min = mean(yeastract.stats$n[match(TF[value %in% min(value)], yeastract.stats$TF_ORF)],na.rm=T),
                                                               sum.min = sum(yeastract.stats$n[match(TF[value %in% min(value)], yeastract.stats$TF_ORF)],na.rm=T),
                                                               n = length(yeastract.stats$n[match(TF[value %in% min(value)], yeastract.stats$TF_ORF)]))
 
 
 proteins.FC.f.stats$gene_name = orf2name$gene_name[match(proteins.FC.f.stats$KO, orf2name$ORF)]
+
 proteins.FC.f.stats$phys.degree = degree(G.phys)[match(proteins.FC.f.stats$KO, names(degree(G.phys)))]
 proteins.FC.f.stats$betweenness = betweenness(GRAPH)[match(proteins.FC.f.stats$KO, names(degree(GRAPH)))]
 proteins.FC.f.stats$degree = degree(GRAPH)[match(proteins.FC.f.stats$KO, names(degree(GRAPH)))]
@@ -943,6 +813,7 @@ proteins.FC.f.stats$degree = degree(GRAPH)[match(proteins.FC.f.stats$KO, names(d
 proteins.FC.f.stats$gene.degree = degree(G.gene)[match(proteins.FC.f.stats$KO, names(degree(G.gene)))]
 proteins.FC.f.stats$min.paths = min.paths[match(proteins.FC.f.stats$KO, names(min.paths))]
 proteins.FC.f.stats$min.paths.comb = ifelse(min.paths[match(proteins.FC.f.stats$KO, names(min.paths))] <= 1, 0, 1)
+
 
 proteins.FC.f.stats = merge(proteins.FC.f.stats, paths.long.stats, by="KO", all=T)
 proteins.FC.f.stats$min.paths.comb[is.na(proteins.FC.f.stats$min.paths.comb)] = "none"
@@ -991,6 +862,13 @@ p2 = ggplot(proteins.FC.f.stats.long, aes(x=factor(min.paths), y=value)) +
   xlab("Shortest distance to transcription factor") +
   facet_wrap(~variable, scales="free") 
 
+p3 = ggplot(proteins.FC.f.stats.long, aes(x=factor(cluster), y=min.paths)) +
+  geom_boxplot()
+
+
 g = arrangeGrob(p1,p2 , ncol=2, main=paste("Reference:", reference))
 plots.list = lappend(plots.list, g)
 
+file_name = paste(fun_name, "report.pdf", sep=".")
+file_path = paste(figures_dir, file_name, sep="/")
+save_plots(plots.list, filename=file_path, type="l")

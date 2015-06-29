@@ -176,70 +176,68 @@ createMetadata = function() {
 
 
 
-createMetabolites = function() {
-  load("./R/objects/metabolites.raw.RData")
-  load("./R/objects/sample_exp.map.RData")
-  load("./R/objects/dates_map._load_.RData")
-    
-    
-  pattern.p = "(\\d+)_KL_([A-Za-z0-9]+)_?(\\d?)"
-  matches.tmp = stringr::str_match_all(string=metabolites.raw[,1], pattern=pattern.p)
-  
-  pheno.met = data.frame(matrix(unlist(matches.tmp), byrow=T, ncol=length(matches.tmp[[1]])))
-  names(pheno.met) = c("SampleName", "batch", "sample.id", "replicate")
-  
-  pheno.met$sample.id = paste("KL",as.character(pheno.met$sample.id), sep="")
-  pheno.met$sample.id[grep(pattern="WT", ignore.case=T, x=pheno.met$sample.id)] = "WT"
-  pheno.met$sample.id = factor(pheno.met$sample.id)
-  
-  
-  pheno.met$ORF = as.character(dates_map$ORF[match(pheno.met$sample.id, dates_map$Nr)])
-  pheno.met$ORF[grep(pattern="WT", ignore.case=T, x=pheno.met$sample.id)] = "WT"
-  pheno.met$ORF = factor(pheno.met$ORF)
-  phenotypes.f = droplevels(pheno.met[!is.na(pheno.met$ORF),])
-  metabolite.matrix = as.matrix(t(metabolites.raw[,-1]))
-  colnames(metabolite.matrix) = metabolites.raw$Sample
-  
-  
-  metabolite.matrix.long = melt(metabolite.matrix, id.vars=row.names)
-  names(metabolite.matrix.long) = c("id", "variable", "value")
-  
-  metabolite.matrix.long = tbl_df(metabolite.matrix.long %>% extract(variable, 
-                                            into=c("batch", "sample"),  
-                                            regex="(\\d+)_(\\w+)"))
-    
-  
-  
-  
-  #metabolites.matrix.f1 = metabolite.matrix[,colnames(metabolite.matrix) %in% phenotypes.f$SampleName]
-  metabolites.matrix.f = metabolite.matrix[,match(phenotypes.f$SampleName, colnames(metabolite.matrix))]
-  
-  metabolites.folds = rowFolds(data=metabolites.matrix.f, groups=phenotypes.f$ORF, reference="WT")
-  metabolites.folds[is.na(metabolites.folds)] = NA
-  
-  metabolite.folds.long = reshape2::melt(as.matrix(metabolites.folds), id.vars=row.names)
-  names(metabolite.folds.long) = c("id", "variable", "value")
-  
-  
-
-  metabolites.data = metabolite.matrix.long
-  file_name = paste("metabolites.data", suffix, "RData", sep=".")
-  file_path = paste(output_dir, file_name, sep="/")
-  save(metabolites.data,file=file_path)  
-  
-  metabolites.folds = metabolite.folds.long
-  file_name = paste("metabolites.folds", suffix, "RData", sep=".")
-  file_path = paste(output_dir, file_name, sep="/")
-  save(metabolites.folds,file=file_path)  
-
-}
+# createMetabolites = function() {
+#   load("./R/objects/metabolites.raw.RData")
+#   load("./R/objects/sample_exp.map.RData")
+#   load("./R/objects/dates_map._load_.RData")
+#     
+#     
+#   pattern.p = "(\\d+)_KL_([A-Za-z0-9]+)_?(\\d?)"
+#   matches.tmp = stringr::str_match_all(string=metabolites.raw[,1], pattern=pattern.p)
+#   
+#   pheno.met = data.frame(matrix(unlist(matches.tmp), byrow=T, ncol=length(matches.tmp[[1]])))
+#   names(pheno.met) = c("SampleName", "batch", "sample.id", "replicate")
+#   
+#   pheno.met$sample.id = paste("KL",as.character(pheno.met$sample.id), sep="")
+#   pheno.met$sample.id[grep(pattern="WT", ignore.case=T, x=pheno.met$sample.id)] = "WT"
+#   pheno.met$sample.id = factor(pheno.met$sample.id)
+#   
+#   
+#   pheno.met$ORF = as.character(dates_map$ORF[match(pheno.met$sample.id, dates_map$Nr)])
+#   pheno.met$ORF[grep(pattern="WT", ignore.case=T, x=pheno.met$sample.id)] = "WT"
+#   pheno.met$ORF = factor(pheno.met$ORF)
+#   phenotypes.f = droplevels(pheno.met[!is.na(pheno.met$ORF),])
+#   metabolite.matrix = as.matrix(t(metabolites.raw[,-1]))
+#   colnames(metabolite.matrix) = metabolites.raw$Sample
+#   
+#   
+#   metabolite.matrix.long = melt(metabolite.matrix, id.vars=row.names)
+#   names(metabolite.matrix.long) = c("id", "variable", "value")
+#   
+#   metabolite.matrix.long = tbl_df(metabolite.matrix.long %>% extract(variable, 
+#                                             into=c("batch", "sample"),  
+#                                             regex="(\\d+)_(\\w+)"))
+#     
+#   
+#   
+#   
+#   #metabolites.matrix.f1 = metabolite.matrix[,colnames(metabolite.matrix) %in% phenotypes.f$SampleName]
+#   metabolites.matrix.f = metabolite.matrix[,match(phenotypes.f$SampleName, colnames(metabolite.matrix))]
+#   
+#   metabolites.folds = rowFolds(data=metabolites.matrix.f, groups=phenotypes.f$ORF, reference="WT")
+#   metabolites.folds[is.na(metabolites.folds)] = NA
+#   
+#   metabolite.folds.long = reshape2::melt(as.matrix(metabolites.folds), id.vars=row.names)
+#   names(metabolite.folds.long) = c("id", "variable", "value")
+#   
+# 
+#   metabolites.data = metabolite.matrix.long
+#   file_name = paste("metabolites.data", suffix, "RData", sep=".")
+#   file_path = paste(output_dir, file_name, sep="/")
+#   save(metabolites.data,file=file_path)  
+#   
+#   metabolites.folds = metabolite.folds.long
+#   file_name = paste("metabolites.folds", suffix, "RData", sep=".")
+#   file_path = paste(output_dir, file_name, sep="/")
+#   save(metabolites.folds,file=file_path)  
+# 
+# }
 
 
 createMetabolites2 = function() {
   load("./R/objects/dataset.metabolites.raw._load_.RData")
   load("./R/objects/dates_map._load_.RData")
-  
-  
+    
   dataset.metabolites.raw$sample_id = factor(paste(dataset.metabolites.raw$Experiment, dataset.metabolites.raw$Sample, sep="_"))
     
   pattern.p = "(\\d+)_KL_([A-Za-z0-9]+)_?(\\d?)"
@@ -273,12 +271,58 @@ createMetabolites2 = function() {
   
 }
 
+
+createMetabolitesTCA = function() {
+  
+  load("./R/objects/metabolitesTCA.raw._load_.RData")
+  load("./R/objects/dates_map._load_.RData")
+  
+  
+  pattern.p = "Sample_(.*?)_(\\w+)(.*)"
+  
+  matches.tmp = stringr::str_match_all(string=metabolitesTCA.raw$Name, pattern=pattern.p)
+  pheno = data.frame(matrix(unlist(matches.tmp), byrow=T, ncol=length(matches.tmp[[1]])))
+  
+  names(pheno) =  c("sample_name", "sample", "replicate", "measure_date")
+  pheno$measure_date = trimWhiteSpace(pheno$measure_date)
+  pheno$measure_date = gsub(pattern="[\\(\\)]+", replacement="", perl=T, x=pheno$measure_date)
+  pheno$measure_batch = as.numeric(factor(pheno$measure_date))
+  
+  pheno = pheno %>% group_by(measure_batch, sample) %>% mutate(number = 1:length(sample))
+  
+  
+  pheno$sample_id = with(pheno, paste(measure_batch, sample, replicate, number, sep="_" ))
+  pheno$ORF = as.character(dates_map$ORF[match(pheno$sample, dates_map$Nr)])
+  pheno$ORF[grep(pattern="WT",ignore.case=T, x=pheno$sample_name)] = "WT"
+  
+  metabolitesTCA.data = cbind(pheno$sample_id, metabolitesTCA.raw[,-c(1,2)])
+  metabolitesTCA.data[metabolitesTCA.data == 0] = NA
+  names(metabolitesTCA.data)[1] = "sample_id"
+  
+  metabolitesTCA_metadata = pheno
+      
+  file_name = paste("metabolitesTCA_metadata", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(metabolitesTCA_metadata,file=file_path)  
+    
+  metabolitesTCA.data = melt(metabolitesTCA.data, id.vars=c("sample_id"))
+  
+  #removing weird values
+  metabolitesTCA.data$value[which(with(metabolitesTCA.data, variable == "S7P" & (sample_id == "3_WT_A_1" | sample_id == "3_WT_B_2" | sample_id == "3_WT_C_3" |
+                                                 sample_id == "5_WT_A_1" | sample_id == "5_WT_B_2" | sample_id == "5_WT_C_3" )))] = NA
+  
+  file_name = paste("metabolitesTCA.data", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(metabolitesTCA.data,file=file_path)
+  
+}
+
 createAA = function() {
   load("./R/objects//aa.raw._load_.RData")
   #load("./R/objects/exp_metadata._clean_.RData")
   load("./R/objects/metabolite_metadata._clean_.RData")
   load("./R/objects/dates_map._load_.RData")
-  
+  View(aa.raw)  
 #   file_name = paste("kinases", suffix, "txt", sep=".")
 #   file_path = paste(output_dir, file_name, sep="/") 
 #   write.table(x=unique(exp_metadata$ORF[exp_metadata$type == "Kinase"]),col.names=F, row.names=F, file=file_path, quote=F)
@@ -292,11 +336,11 @@ createAA = function() {
   
   aa_metadata$ORF = as.character(dates_map$ORF[match(aa_metadata$Strain, dates_map$Nr)])
   aa_metadata$ORF[is.na(aa_metadata$ORF)] = as.character(aa_metadata$Strain[which(is.na(aa_metadata$ORF))])
+  aa_metadata$ORF[grep(pattern="Wt", aa_metadata$ORF)] = "WT"
   
   file_name = paste("aa_metadata", suffix, "RData", sep=".")
   file_path = paste(output_dir, file_name, sep="/")
   save(aa_metadata,file=file_path)  
-  
   
   aa.data = melt(dplyr::select(aa.raw, -Batch, -Strain, -Replicate, -Date), id.vars=c("sample_id"))
   file_name = paste("aa.data", suffix, "RData", sep=".")
@@ -386,6 +430,8 @@ main = function() {
   createAA() 
   createAA_michael()
   createMetabolites2()
+  
+  createMetabolitesTCA()
 }
 
 

@@ -6,7 +6,8 @@ source("./R/functions.R")
 source("./R/boot.R")
 
 plots.list = list()
-fun_name = "analysis2a"
+fun_name = "analysis2b"
+
 
 load("./R/objects/metabolite_metadata._clean_.RData")
 load("./R/objects/exp_metadata._clean_.RData")
@@ -182,6 +183,107 @@ aa_michael.mean.df = dcast(aa_michael.combat.long.mean, formula=variable~ORF, va
 aa_michael.mean.matrix = as.matrix(aa_michael.mean.df[,-1])
 rownames(aa_michael.mean.matrix) = aa_michael.mean.df$variable
 
+# selected metabolites based on screen experiments
+load("./R/objects/metabolitesTCA_metadata._clean_.RData")
+load("./R/objects/metabolitesTCA.data._clean_.RData")
+
+
+metabolitesTCA.data$date = metabolitesTCA_metadata$measure_date[match(metabolitesTCA.data$sample_id, metabolitesTCA_metadata$sample_id)]
+metabolitesTCA.data$batch = metabolitesTCA_metadata$measure_batch[match(metabolitesTCA.data$sample_id, metabolitesTCA_metadata$sample_id)]
+
+metabolitesTCA.data = droplevels(metabolitesTCA.data[grep(pattern="_[123]+$", x=metabolitesTCA.data$sample_id, perl=T),])
+metabolitesTCA.data = droplevels(filter(metabolitesTCA.data, variable != "Glu"))
+
+wt_points = metabolitesTCA.data[grep(x=metabolitesTCA.data$sample_id, pattern="WT", ignore.case=T),]
+
+library(scales)
+p1 = ggplot(metabolitesTCA.data, aes(x=batch, y=value)) +
+          geom_point() +
+          geom_point(data=wt_points, aes(x=batch, y=value), col="red") +
+          #geom_text(data=wt_points, hjust=1, vjust = 0, aes(x=batch, y=value, label=sample_id), col="red") +
+          ggtitle("Before correction") +
+          facet_wrap(~variable, scales="free")
+
+
+metabolitesTCA.df = dcast(metabolitesTCA.data, formula=variable~sample_id)
+metabolitesTCA.matrix = as.matrix(metabolitesTCA.df[,-1])
+rownames(metabolitesTCA.matrix) = metabolitesTCA.df$variable
+
+
+metabolitesTCA.matrix.t = t(metabolitesTCA.matrix)
+
+library(Amelia)
+set.seed(123)
+metabolitesTCA.imputed = amelia(metabolitesTCA.matrix.t, logs=colnames(metabolitesTCA.matrix.t), m=5)
+metabolitesTCA.imputed.matrix = Reduce("+",metabolitesTCA.imputed$imputations)/length(metabolitesTCA.imputed$imputations)
+
+
+
+pheno = metabolitesTCA_metadata[metabolitesTCA_metadata$sample_id %in% rownames(metabolitesTCA.imputed.matrix),]
+pheno = as.data.frame(droplevels(pheno[match(rownames(metabolitesTCA.imputed.matrix), pheno$sample_id),]))
+pheno$measure_batch = factor(pheno$measure_batch)
+
+mod = model.matrix(~as.factor(ORF), data=pheno)
+metabolitesTCA.matrix.combat = exp(ComBat(log(t(metabolitesTCA.imputed.matrix)), batch=pheno$measure_batch, mod=mod, par.prior=T))
+metabolitesTCA.matrix.combat.long = melt(t(metabolitesTCA.matrix.combat), id.vars="rownames")
+names(metabolitesTCA.matrix.combat.long) = c("sample_id","variable", "value")
+
+metabolitesTCA.matrix.combat.long$batch = metaboliteTCA_metadata$measure_batch[match(metabolitesTCA.matrix.combat.long$sample_id, metabolitesTCA_metadata$sample_id)]
+
+wt_points.combat = metabolitesTCA.matrix.combat.long[grep(x=metabolitesTCA.matrix.combat.long$sample_id, pattern="WT", ignore.case=T),]
+
+     
+
+p2 = ggplot(metabolitesTCA.matrix.combat.long, aes(x=batch, y=value)) +
+  geom_point() +
+  geom_point(data=wt_points.combat, aes(x=batch, y=value), col="red") +
+  #geom_text(data=wt_points, hjust=1, vjust = 0, aes(x=batch, y=value, label=sample_id), col="red") +
+  ggtitle("After correction") +
+  facet_wrap(~variable, scales="free")
+
+grid.arrange(p1,p2, ncol=1)
+
+metabolitesTCA.long = merge(metabolitesTCA.matrix.combat.long, metabolitesTCA.data, by=c("sample_id", "variable", "batch"), suffixes=c(".combat", ".raw"))
+metabolitesTCA.long$value.combat[is.na(metabolitesTCA.long$value.raw)] = NA
+
+
+
+proteins.matrix = proteins.matrix.combat
+
+proteins.long = melt(proteins.matrix, id.vars="rownames")
+names(proteins.long) = c("ORF", "R.Label", "signal")
+proteins.long$KO = exp_metadata$ORF[match(proteins.long$R.Label, exp_metadata$sample_name)]
+
+
+set.seed(123)
+metabolitesTCA_metadata.wt = metabolitesTCA_metadata %>% filter(ORF== "WT") %>% group_by(ORF) %>% sample_n(3)
+metabolitesTCA_metadata.NOwt = metabolitesTCA_metadata %>% filter(ORF != "WT") %>% group_by(sample, replicate) %>% distinct()
+
+TCAmetadata = na.omit(rbind(metabolitesTCA_metadata.wt, metabolitesTCA_metadata.NOwt) %>% 
+                group_by(measure_batch, ORF) %>% 
+                mutate(prot.sample_id = exp_metadata$sample_name[base::sample(x=which(exp_metadata$ORF %in% ORF),replace=F)[1:length(ORF)]]))
+
+TCAmetadata = droplevels(TCAmetadata)
+
+metabolitesTCA.final.df = dcast(metabolitesTCA.long, formula=sample_id~variable, value.var="value.combat")
+metabolitesTCA.final.matrix = as.matrix(metabolitesTCA.final.df[,-1])
+rownames(metabolitesTCA.final.matrix) = metabolitesTCA.final.df$sample_id
+metabolitesTCA.final.matrix = metabolitesTCA.final.matrix[rownames(metabolitesTCA.final.matrix) %in% TCAmetadata$sample_id,]
+rownames(metabolitesTCA.final.matrix) = TCAmetadata$prot.sample_id[match(rownames(metabolitesTCA.final.matrix), as.vector(TCAmetadata$sample_id))]
+
+proteins.matrix.combat.t = t(proteins.matrix.combat)
+proteins.matrix.combat.t.f = proteins.matrix.combat.t[rownames(proteins.matrix.combat.t) %in% as.vector(TCAmetadata$prot.sample_id),]
+
+both.present = intersect(rownames(proteins.matrix.combat.t.f), rownames(metabolitesTCA.final.matrix))
+
+proteins.matrix.combat.t.f = proteins.matrix.combat.t.f[rownames(proteins.matrix.combat.t.f) %in% both.present,]
+metabolitesTCA.final.matrix = metabolitesTCA.final.matrix[rownames(metabolitesTCA.final.matrix) %in% both.present,]
+
+proteins.present = proteins.matrix.combat.t.f[match(both.present, rownames(proteins.matrix.combat.t.f)),]
+metabolitesTCA.present = metabolitesTCA.final.matrix[match(both.present, rownames(metabolitesTCA.final.matrix)),]
+
+
+
 
 ## -- making linear model of metabolism ----
 library(leaps)
@@ -206,7 +308,6 @@ rownames(metabolites.all.mean.matrix) = metabolites.all.mean.df$variable
 # metabolites.all.mean.matrix = t(metabolites.all.mean.matrix.t)
 
 
-
 both.present = intersect(colnames(proteins.mean.matrix), colnames(metabolites.all.mean.matrix))
 
 proteins.mean.matrix.present = proteins.mean.matrix[,match(both.present, colnames(proteins.mean.matrix))]
@@ -217,14 +318,9 @@ load("./R/objects/metabolite2iMM904._load_.RData")
 
 
 yeast.model = iMM904
-head(yeast.model)
-head(metabolite2iMM904)
-
 yeast.model.merged = droplevels(merge(yeast.model, metabolite2iMM904, by.x="metabolite", by.y="model_name"))
 
-str(yeast.model.merged)
 
-table(yeast.model.merged$metabolite)
 
 library("faraway")
 library("car")
