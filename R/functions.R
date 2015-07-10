@@ -582,4 +582,54 @@ my_diagnostics = function(fit, filename = NULL, influence=T) {
   return(plots.list)
 }
 
+theme_change <- theme(
+  plot.background = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.background = element_blank(),
+  panel.border = element_blank(),
+  axis.line = element_blank(),
+  axis.ticks = element_blank(),
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank())
+
+
+splinesfit <- function(i,x,y, subset=NULL) {
+  return(AIC(lm(y~bs(x,df=i, subset))))
+} 
+
+
+
+
+splines.normalization<-function(x,time,subset=NULL, best = NULL, progress=TRUE, adjust="median",...){
+  #subset = logical specifying which subset of the data to be used for fitting
+  #adjust = function used to adjust post normalized data statistic to that of the pre normalized
+  #best = vector of best df for spline fits  
+  if (progress == TRUE){ pb <- txtProgressBar(min = 0, max = ncol(x), style = 3)} else {pb<-NULL}
+  res<-do.call("cbind",lapply(1:ncol(x),function(i){
+    tmp.y = x[,i]
+    df.time = time[subset]
+    df.tmp.y = tmp.y[subset]
+    DF.bs = ifelse(is.null(best), as.integer(optimize(splinesfit, df.time , df.tmp.y, interval = c(1,15))$minimum),
+                   best[i])
+    fit<- lm(tmp.y ~ bs(time, df = DF.bs), subset=subset, ...)
+    pred<-predict(fit,data.frame(time=time))
+    if (progress == TRUE){setTxtProgressBar(pb, i)}
+    return(tmp.y-pred) # residuals for train and test
+  }))
+  
+  if (progress == TRUE){close(pb)}
+  if(!is.null(adjust)){
+    scale1<-apply(x,2,adjust,na.rm=TRUE)
+    
+    tmp<-sweep(res,2,apply(res,2,min,na.rm=TRUE),"-") # get rid of negative values
+    mins<-apply(x,2,min,na.rm=TRUE)
+    tmp<-sweep(tmp,2,mins,"+")
+    scale2<-apply(tmp,2,adjust,na.rm=TRUE)
+    adjustment<-scale1/scale2
+    res<-sweep(tmp,2,adjustment,"*")
+  }
+  colnames(res) = colnames(x)
+  return(res)
+}
 

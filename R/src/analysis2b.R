@@ -93,10 +93,8 @@ plots.list = lappend(plots.list, p)
 metabolites.matrix.combat.long$ORF = pheno$ORF[match(metabolites.matrix.combat.long$sample_id, pheno$sample_id)]
 metabolites.long.mean = tbl_df(metabolites.matrix.combat.long) %>% group_by(variable, ORF) %>% summarize(mean = mean(value))
 
-
 metabolites.long.merged = merge(metabolites.matrix.combat.long, metabolites.data, by=c("sample_id", "variable", "batch"), suffixes=c(".combat", ".raw"))
 metabolites.long.merged$value.combat[is.na(metabolites.long.merged$value.raw)] = NA
-
 metabolites.long.mean.models = tbl_df(metabolites.long.merged) %>% group_by(variable, ORF) %>% summarize(mean = mean(value.combat))
 
 

@@ -261,51 +261,85 @@ save(peptides.matrix.combat.quant,file=file_path)
 # Signal<- fit$coef[,1:(ncol(X)-1)]%*%t(X[,1:(ncol(X)-1)])
 # after  = peptides.matrix - Batch
 
+load("R/objects/peptides.matrix.combat.quant.RData")
 
 before = peptides.matrix
 after = peptides.matrix.combat.quant
 
-# pca
-message("plotting PCA results")
-
-file_name = "PCA_batch_effects.pdf"
-file_path = paste(figures_dir, file_name, sep="/")
-pdf(file_path, width=11.7+0.1*11.7, height=8.27+0.1*8.27)
-par(pty="s", mfrow=c(1,2))
-
-
 
 pca = prcomp(t(before), scale.=T)
-x_var = round(pca$sdev[1]^2/sum(pca$sdev^2)*100,2)
-y_var = round(pca$sdev[2]^2/sum(pca$sdev^2)*100,2)
+x.n = 1
+y.n = 2
+x_var = round(pca$sdev[x.n]^2/sum(pca$sdev^2)*100,2)
+y_var = round(pca$sdev[y.n]^2/sum(pca$sdev^2)*100,2)
+annot = data.frame(x_var, y_var, type="before")
 
-plot(pca$x[,1], pca$x[,2], cex=1.5, cex.lab=1.5, col=pheno$batch_date, pch=16, main="Before adjustments for batch effects", 
-     xlab=paste("PC1,", x_var), 
-     ylab=paste("PC2,", y_var))
-pca.mix = pca$x[grep(x=rownames(pca$x), pattern="mix", ignore.case=T),]
-pca.wt = pca$x[match(pheno$sample_name[pheno$ORF=="WT"], rownames(pca$x)),]
-points(pca.mix[,1], pca.mix[,2], pch=8, col="black", cex=3)
-points(pca.wt[,1], pca.wt[,2], pch=2, col="black", cex=3)
-text(pca$x[,1], pca$x[,2], labels=as.numeric(pheno$batch.exp), cex=0.5)
+scores = as.data.frame(pca$x)
+scores$type = "before"
+scores$sample.id = rownames(scores)
 
 pca = prcomp(t(after), scale.=T)
-#pca = prcomp(t(proteins.matrix.f., scale.=T)
-x_var = round(pca$sdev[1]^2/sum(pca$sdev^2)*100,2)
-y_var = round(pca$sdev[2]^2/sum(pca$sdev^2)*100,2)
+x.n = 1
+y.n = 2
+x_var = round(pca$sdev[x.n]^2/sum(pca$sdev^2)*100,2)
+y_var = round(pca$sdev[y.n]^2/sum(pca$sdev^2)*100,2)
+annot = rbind(annot,data.frame(x_var, y_var, type="after"))
 
-plot(pca$x[,1], pca$x[,2], cex=1.5, cex.lab=1.5, col=pheno$batch_date, pch=16, main="After adjustments for batch effects",
-     xlab=paste("PC1,", x_var), 
-     ylab=paste("PC2,", y_var))
-pca.mix = pca$x[grep(x=rownames(pca$x), pattern="mix", ignore.case=T),]
-pca.wt = pca$x[match(pheno$sample_name[pheno$ORF=="WT"], rownames(pca$x)),]
-points(pca.mix[,1], pca.mix[,2], pch=8, col="black", cex=3)
-points(pca.wt[,1], pca.wt[,2], pch=2, col="black", cex=3)
-text(pca$x[,1], pca$x[,2], labels=as.numeric(pheno$batch.exp), cex=0.5)
+scores = rbind(scores, data.frame(sample.id = rownames(scores), pca$x, type = "after"))
+scores$batch_kmeans = factor(pheno$batch_kmeans[match(scores$sample.id, pheno$sample_name)])
+scores.mix = scores[grepl(pattern="mix", ignore.case=T, x=rownames(scores)),]
+scores$type = factor(scores$type, levels=c("before", "after"))
 
+library(cowplot)
+p = ggplot(scores, aes(x=PC1, y=PC2, col=batch_kmeans )) + 
+  geom_point(size=3) +
+  geom_vline(xintercept = 0) +
+  geom_hline(yintercept = 0) +
+  geom_point(data=scores.mix, aes(x=PC1, y=PC2),size=3,col="black", shape=17) +
+  scale_x_continuous("")
+  facet_wrap(~type, scales="free") + theme(aspect.ratio = 1) 
 
-p = recordPlot()
-plots.list = lappend(plots.list, p)
-dev.off()
+# pca
+# message("plotting PCA results")
+# 
+# file_name = "PCA_batch_effects.pdf"
+# file_path = paste(figures_dir, file_name, sep="/")
+# pdf(file_path, width=11.7+0.1*11.7, height=8.27+0.1*8.27)
+# par(pty="s", mfrow=c(1,2))
+# 
+# 
+# 
+# pca = prcomp(t(before), scale.=T)
+# x_var = round(pca$sdev[1]^2/sum(pca$sdev^2)*100,2)
+# y_var = round(pca$sdev[2]^2/sum(pca$sdev^2)*100,2)
+# 
+# plot(pca$x[,1], pca$x[,2], cex=1.5, cex.lab=1.5, col=pheno$batch_date, pch=16, main="Before adjustments for batch effects", 
+#      xlab=paste("PC1,", x_var), 
+#      ylab=paste("PC2,", y_var))
+# pca.mix = pca$x[grep(x=rownames(pca$x), pattern="mix", ignore.case=T),]
+# pca.wt = pca$x[match(pheno$sample_name[pheno$ORF=="WT"], rownames(pca$x)),]
+# points(pca.mix[,1], pca.mix[,2], pch=8, col="black", cex=3)
+# points(pca.wt[,1], pca.wt[,2], pch=2, col="black", cex=3)
+# text(pca$x[,1], pca$x[,2], labels=as.numeric(pheno$batch.exp), cex=0.5)
+# 
+# pca = prcomp(t(after), scale.=T)
+# #pca = prcomp(t(proteins.matrix.f., scale.=T)
+# x_var = round(pca$sdev[1]^2/sum(pca$sdev^2)*100,2)
+# y_var = round(pca$sdev[2]^2/sum(pca$sdev^2)*100,2)
+# 
+# plot(pca$x[,1], pca$x[,2], cex=1.5, cex.lab=1.5, col=pheno$batch_date, pch=16, main="After adjustments for batch effects",
+#      xlab=paste("PC1,", x_var), 
+#      ylab=paste("PC2,", y_var))
+# pca.mix = pca$x[grep(x=rownames(pca$x), pattern="mix", ignore.case=T),]
+# pca.wt = pca$x[match(pheno$sample_name[pheno$ORF=="WT"], rownames(pca$x)),]
+# points(pca.mix[,1], pca.mix[,2], pch=8, col="black", cex=3)
+# points(pca.wt[,1], pca.wt[,2], pch=2, col="black", cex=3)
+# text(pca$x[,1], pca$x[,2], labels=as.numeric(pheno$batch.exp), cex=0.5)
+# 
+# 
+# p = recordPlot()
+# plots.list = lappend(plots.list, p)
+# dev.off()
 
 
 

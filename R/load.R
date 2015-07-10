@@ -252,12 +252,20 @@ loadSTRING = function() {
 }
 
 
-load_metabolites = function() {
+load_metabolites = function() { #Screen data
   metabolites.raw = read.table("./data/2014-03-05/KL_screen_normalized_PPP_results.csv", header=T, sep=",")
   file_name = paste("metabolites.raw", suffix, "RData", sep=".")
   file_path = paste(output_dir, file_name, sep="/")
   save(metabolites.raw, file=file_path)
 }
+
+load_metabolites_TCA = function () { #Selected data
+  metabolitesTCA.raw <- read.csv("./data/2015-06-24/20131112_TCA_KinLib_conc3.csv")
+  file_name = paste("metabolitesTCA.raw", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(metabolitesTCA.raw, file=file_path)
+}
+
 
 load_AA = function() {
   aa.raw = read.table("./data/2015-05-11/2015-04-27 _concentrations_raw.csv", sep=",", header=T, strip.white=T)
@@ -421,7 +429,42 @@ load_iMaranas_GTrass = function() {
 
 
 
+load_essential_ORFs = function() {
+  essential_ORFs <- read.delim("./data/2015-06-22/Essential_ORFs.txt")
+  essential_ORFs = essential_ORFs[-1,] 
+  essential_ORFs$ORF_name = trim(essential_ORFs$ORF_name)
+  file_name = paste("essential_ORFs", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(essential_ORFs, file=file_path)  
+}
 
+
+load_flux_coupling = function() {
+  input_path = "./results/2015-06-09/fc_results"
+  
+  
+  filesToProcess = dir(path=input_path, pattern = "*.fc", recursive=F)
+  pattern.p = "(.*?).fc"
+  
+  matches = stringr::str_match_all(pattern=pattern.p, filesToProcess)
+    
+  read_fc = function(x) {
+    file_name = paste(input_path,x[[1]], sep="/") 
+    table = read.delim(file_name, sep="\t", header=T)
+    
+    tmp.df = data.frame(biomass = table$biomass,
+                        reactions = table$v1.v2)
+    tmp.df$run = x[[2]]
+    return(tmp.df)
+  }
+  
+  file.list = lapply(matches, FUN=read_fc)
+  flux_coupling = do.call(rbind.data.frame, file.list)
+  
+  file_name = paste("flux_coupling", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(flux_coupling,file=file_path)
+}
 
 main = function() {
   load_proteome()
@@ -433,6 +476,8 @@ main = function() {
   load_protein_annotations()
   load_gene_annotations()
   load_metabolites()
+  load_metabolites_TCA()
+  
   loadKEGG()
   load_BIOGRID()
   load_AA()
@@ -442,6 +487,7 @@ main = function() {
   load_metabolite2iMM904_map()
   load_KEGG_htext()
   load_iMaranas_GTrass()
+  load_essential_ORFs()
 }
 
 main()

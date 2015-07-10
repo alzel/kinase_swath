@@ -322,7 +322,7 @@ createAA = function() {
   #load("./R/objects/exp_metadata._clean_.RData")
   load("./R/objects/metabolite_metadata._clean_.RData")
   load("./R/objects/dates_map._load_.RData")
-  View(aa.raw)  
+  
 #   file_name = paste("kinases", suffix, "txt", sep=".")
 #   file_path = paste(output_dir, file_name, sep="/") 
 #   write.table(x=unique(exp_metadata$ORF[exp_metadata$type == "Kinase"]),col.names=F, row.names=F, file=file_path, quote=F)
