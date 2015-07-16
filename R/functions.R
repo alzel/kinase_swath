@@ -494,6 +494,20 @@ my_diagnostics = function(fit, filename = NULL, influence=T) {
   beta.changes$sample = rownames(beta.changes)
   beta.changes.long = melt(beta.changes[,-1], id.vars="sample")
   
+  X <- fit$model[,-1]
+  y <- fit$model[,1]
+  
+  theta.fit <- function(x,y){lsfit(x,y)}
+  theta.predict <- function(fit,x){cbind(1,x)%*%fit$coef}
+  
+#  set.seed(123) 
+#   CVs = c()
+#   for (i in 1:1000) {
+#     cv.results <- crossval(x=X,y=y,theta.fit=theta.fit,theta.predict=theta.predict, ngroup=10)
+#     cv.r.squared = cor(y,cv.results$cv.fit)**2
+#     CVs = c(CVs, cv.r.squared)
+#   }
+    
   p1 = ggplot(data = myfortdata, aes(x = .fitted, y = .resid)) +
     geom_hline(yintercept = 0, colour = "firebrick3") +
     geom_point(size=2) +
@@ -577,8 +591,12 @@ my_diagnostics = function(fit, filename = NULL, influence=T) {
                         aes(x = rows, y=.cooksd, label=label))                
     
   }
-  
+    
   plots.list = lappend(plots.list, p8)
+  
+#   p9 = ggplot(data=CVs, aes(x=CVs)) + geom_density()
+#   plots.list = lappend(plots.list, p9)
+  
   return(plots.list)
 }
 
@@ -633,3 +651,37 @@ splines.normalization<-function(x,time,subset=NULL, best = NULL, progress=TRUE, 
   return(res)
 }
 
+
+cor_heatmap = function (clean.data) {
+  #clean.data - matrix or data.frame of numbers 
+  correlations = cor(clean.data)
+  hc = hclust(as.dist(correlations))
+  correlations.long = melt(correlations)
+  
+  ## set color representation for specific values of the data distribution
+  quantile_range <- quantile(correlations, probs = seq(0, 1, 0.2))
+  
+  ## use http://colorbrewer2.org/ to find optimal divergent color palette (or set own)
+  color_palette <- colorRampPalette(c("#3794bf", "#FFFFFF", "#df8640"))(length(quantile_range) - 1)
+  
+  ## prepare label text (use two adjacent values for range text)
+  label_text <- rollapply(round(quantile_range, 2), width = 2, by = 1, FUN = function(i) paste(i, collapse = " : "))
+  
+  ## discretize matrix; this is the most important step, where for each value we find category of predefined ranges (modify probs argument of quantile to detail the colors)
+  mod_mat <- matrix(findInterval(correlations, quantile_range, all.inside = TRUE), nrow = nrow(correlations))
+  colnames(mod_mat) = colnames(correlations)
+  rownames(mod_mat) = rownames(correlations)
+  
+  toPlot = merge(correlations.long, melt(mod_mat), by=c("X1", "X2"))
+  toPlot$X1 = factor(toPlot$X1, levels=rownames(correlations)[hc$order])
+  toPlot$X2 = factor(toPlot$X2, levels=rownames(correlations)[hc$order])
+  
+  ## output the graphics
+  pheat = ggplot(toPlot, aes(x = X1, y = X2, fill = factor(value.y))) +
+    geom_tile(color = "black") +
+    geom_text(aes(label=round(value.x,2)),size=5) +
+    scale_fill_manual(values = color_palette, name = "", labels = label_text) +
+    theme_grey() +
+    theme_change
+  return(pheat)
+}
