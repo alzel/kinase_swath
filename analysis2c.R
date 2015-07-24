@@ -21,7 +21,7 @@ load("./R/objects/aa_metadata._clean_.RData")
 load("./R/objects/aa.data._clean_.RData")
 
 library(leaps)
-load("./R/objects/yeast.model._load_.RData")
+#load("./R/objects/yeast.model._load_.RData")
 
 library("faraway")
 library("car")
@@ -44,17 +44,19 @@ orf2name = unique(data.frame(ORF = protein_annotations$SystName,
 
 metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, models_dir = NULL, suffix = "scaled", scale.var=T, before=F, after=F) {
   
-#     before = F
-#     after = F
-#     models_dir="./figures/models/test2"
-#     predictors.matrix=proteinsTCA.present
-#     response.matrix= metabolitesTCA.present
-#     suffix = "scaled"
-#     scale.var = T
+#      before = F
+#      after = F
+#      models_dir="./figures/models/test2"
+#      predictors.matrix=proteinsTCA.present
+#      response.matrix= metabolitesTCA.present
+#      suffix = "scaled"
+#      scale.var = T
   
   stopifnot(!any(is.null(predictors.matrix)| is.null(response.matrix) | is.null(models_dir) | is.null(fun_name)))
   
   yeast.model = iMM904
+  
+  
   yeast.model.merged = droplevels(merge(yeast.model, metabolite2iMM904, by.x="metabolite", by.y="model_name"))
   
   yeast.model.merged = yeast.model.merged[yeast.model.merged$gene %in% colnames(predictors.matrix),]
@@ -173,7 +175,6 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
     
     sumarries.df = data.frame()
     fits.list = list()
-    
     best.models = na.omit(names(sort(-table(formulas))[1:5]))
     
     for(j in 1:nrow(sample.matrix)) {
@@ -492,6 +493,7 @@ p = ggplot(toPlot, aes(x = metabolite, y = r.squared)) +
     geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.after), shape=19, col="green") + #single CV R2 with cleaned data
     geom_point(data=clean, aes(x = metabolite, y = median.cvs), shape=19, col="pink") + #median of cross validataion
     coord_flip()
+
 file_name = paste(fun_name, "report.pdf", sep=".")
 file_path = paste(models_dir, file_name, sep="/")
 ggsave(p, filename=file_path, height=8.27+0.1*8.27, width = 11.69+0.1*11.69) 
@@ -621,6 +623,32 @@ file_name = paste(fun_name, "report.pdf", sep=".")
 file_path = paste(models_dir, file_name, sep="/")
 ggsave(p, filename=file_path, height=8.27+0.1*8.27, width = 11.69+0.1*11.69) 
 
+## -- selected AA quantiles  ----
+models_dir = "./figures/models/selected_kinases_AA.quantiles"
+unlink(models_dir, recursive = T, force = FALSE)
+dir.create(models_dir)
+
+dataAA = clean_data_AA(models_dir = models_dir)
+resultsAA = make_models(proteins=normalizeQuantiles(dataAA$proteins), dataAA$metabolites, models_dir=models_dir)
+
+toPlot = resultsAA
+clean = resultsAA %>% group_by(metabolite) %>% summarize(clean.r.sq = clean.r.sq[1],
+                                                         cv.r.squared.all = cv.r.squared.all[1],
+                                                         cv.r.squared.after = cv.r.squared.after[1],
+                                                         median.cvs = median.cvs[1])
+
+p = ggplot(toPlot, aes(x = metabolite, y = r.squared)) + 
+  geom_boxplot() + 
+  geom_point(data=clean, aes(x = metabolite, y = clean.r.sq), col="red") + #R2 with cleaned data
+  geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.all), shape=20, col="blue") + #single CV R2 with all data
+  geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.after), shape=19, col="green") + #single CV R2 with cleaned data
+  geom_point(data=clean, aes(x = metabolite, y = median.cvs), shape=19, col="pink") + #median of cross validataion
+  coord_flip()
+
+file_name = paste(fun_name, "report.pdf", sep=".")
+file_path = paste(models_dir, file_name, sep="/")
+ggsave(p, filename=file_path, height=8.27+0.1*8.27, width = 11.69+0.1*11.69) 
+
 
 
 clean_data_PPP_AA = function(models_dir = NULL) {
@@ -725,68 +753,71 @@ clean_data_PPP_AA = function(models_dir = NULL) {
   metabolites.mean.matrix = as.matrix(metabolites.mean.models.df[,-1])
   rownames(metabolites.mean.matrix) = metabolites.mean.models.df$variable
   
-  ## -- amino acids from michael ----
+#   ## -- amino acids from michael ----
+#   
+#   load("./R/objects/aa_michael.metadata._clean_.RData")
+#   load("./R/objects/aa_michael.data._clean_.RData")
+#   
+#   aa_michael.data$date = aa_michael.metadata$date[match(aa_michael.data$sample_id, aa_michael.metadata$sample_id)]
+#   aa_michael.data$batch = aa_michael.metadata$batch[match(aa_michael.data$sample_id, aa_michael.metadata$sample_id)]
+#   
+#   qc_points = aa_michael.data[grep(x=aa_michael.data$sample_id, pattern="QC", ignore.case=T),]
+#   
+#   
+#   library(scales)
+#   p1 = ggplot(aa_michael.data, aes(x=batch, y=value)) +
+#     geom_point() +
+#     geom_point(data=qc_points, aes(x=batch, y=value), col="red") +
+#     ggtitle("Before correction")+
+#     #scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d")) +
+#     facet_wrap(~variable, scales="free")
+#   
+#     
+#   pheno = aa_michael.metadata
+#   
+#   aa_michael.data.df = dcast(aa_michael.data, sample_id~variable, value.var="value")
+#   aa_michael.data.matrix = as.matrix(aa_michael.data.df[,-1])
+#   rownames(aa_michael.data.matrix) = aa_michael.data.df$sample_id
+#   
+#   
+#   #correcting for batch effects Michael's data
+#   aa_michael.data.matrix = aa_michael.data.matrix[complete.cases(aa_michael.data.matrix),]
+#   pheno = droplevels(pheno[match(rownames(aa_michael.data.matrix), pheno$sample_id),])
+#   aa_michael.data.matrix.t = t(aa_michael.data.matrix)
+#   
+#   mod = model.matrix(~ORF, data=pheno)
+#   stopifnot(length(pheno$batch) == ncol(aa_michael.data.matrix.t))
+#   
+#   aa_michael.data.matrix.combat = ComBat(log(aa_michael.data.matrix.t), batch=pheno$batch, mod=mod, par.prior=T)
+#   aa_michael.data.combat.long = melt(t(aa_michael.data.matrix.combat), id.vars="rownames")
+#   names(aa_michael.data.combat.long) = c("sample_id","variable","value" )
+#   
+#   aa_michael.data.combat.long$batch = aa_michael.metadata$batch[match(aa_michael.data.combat.long$sample_id, aa_michael.metadata$sample_id)]
+#   qc_points.combat = aa_michael.data.combat.long[grep(x=aa_michael.data.combat.long$sample_id, pattern="QC", ignore.case=T),]
+#   
+#   
+#   p2 = ggplot(aa_michael.data.combat.long, aes(x=batch, y=value)) +
+#     geom_point() +
+#     geom_point(data=qc_points.combat, aes(x=batch, y=value), col="red") +
+#     ggtitle("After correction") +
+#     facet_wrap(~variable, scales="free")
+#   
+#   g = arrangeGrob(p1,p2, ncol=1)
+#   plots.list = lappend(plots.list, g)
+#   
+#   aa_michael.data.combat.long$ORF = aa_michael.metadata$ORF[match(aa_michael.data.combat.long$sample_id, aa_michael.metadata$sample_id)]
+#   aa_michael.combat.long.mean = tbl_df(aa_michael.data.combat.long) %>% group_by(variable, ORF) %>% summarize(mean = mean(value))
+#   
+#   
+#   aa_michael.mean.df = dcast(aa_michael.combat.long.mean, formula=variable~ORF, value.var="mean")
+#   aa_michael.mean.matrix = as.matrix(aa_michael.mean.df[,-1])
+#   rownames(aa_michael.mean.matrix) = aa_michael.mean.df$variable
   
-  load("./R/objects/aa_michael.metadata._clean_.RData")
-  load("./R/objects/aa_michael.data._clean_.RData")
   
-  aa_michael.data$date = aa_michael.metadata$date[match(aa_michael.data$sample_id, aa_michael.metadata$sample_id)]
-  aa_michael.data$batch = aa_michael.metadata$batch[match(aa_michael.data$sample_id, aa_michael.metadata$sample_id)]
+#   metabolites.binded = rbind(metabolites.long.mean.models, aa_michael.combat.long.mean)
+#   metabolites.all.mean.df = dcast(metabolites.binded, formula=variable~ORF, value.var="mean")
   
-  qc_points = aa_michael.data[grep(x=aa_michael.data$sample_id, pattern="QC", ignore.case=T),]
-  
-  
-  library(scales)
-  p1 = ggplot(aa_michael.data, aes(x=batch, y=value)) +
-    geom_point() +
-    geom_point(data=qc_points, aes(x=batch, y=value), col="red") +
-    ggtitle("Before correction")+
-    #scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d")) +
-    facet_wrap(~variable, scales="free")
-  
-    
-  pheno = aa_michael.metadata
-  
-  aa_michael.data.df = dcast(aa_michael.data, sample_id~variable, value.var="value")
-  aa_michael.data.matrix = as.matrix(aa_michael.data.df[,-1])
-  rownames(aa_michael.data.matrix) = aa_michael.data.df$sample_id
-  
-  
-  #correcting for batch effects Michael's data
-  aa_michael.data.matrix = aa_michael.data.matrix[complete.cases(aa_michael.data.matrix),]
-  pheno = droplevels(pheno[match(rownames(aa_michael.data.matrix), pheno$sample_id),])
-  aa_michael.data.matrix.t = t(aa_michael.data.matrix)
-  
-  mod = model.matrix(~ORF, data=pheno)
-  stopifnot(length(pheno$batch) == ncol(aa_michael.data.matrix.t))
-  
-  aa_michael.data.matrix.combat = ComBat(log(aa_michael.data.matrix.t), batch=pheno$batch, mod=mod, par.prior=T)
-  aa_michael.data.combat.long = melt(t(aa_michael.data.matrix.combat), id.vars="rownames")
-  names(aa_michael.data.combat.long) = c("sample_id","variable","value" )
-  
-  aa_michael.data.combat.long$batch = aa_michael.metadata$batch[match(aa_michael.data.combat.long$sample_id, aa_michael.metadata$sample_id)]
-  qc_points.combat = aa_michael.data.combat.long[grep(x=aa_michael.data.combat.long$sample_id, pattern="QC", ignore.case=T),]
-  
-  
-  p2 = ggplot(aa_michael.data.combat.long, aes(x=batch, y=value)) +
-    geom_point() +
-    geom_point(data=qc_points.combat, aes(x=batch, y=value), col="red") +
-    ggtitle("After correction") +
-    facet_wrap(~variable, scales="free")
-  
-  g = arrangeGrob(p1,p2, ncol=1)
-  plots.list = lappend(plots.list, g)
-  
-  aa_michael.data.combat.long$ORF = aa_michael.metadata$ORF[match(aa_michael.data.combat.long$sample_id, aa_michael.metadata$sample_id)]
-  aa_michael.combat.long.mean = tbl_df(aa_michael.data.combat.long) %>% group_by(variable, ORF) %>% summarize(mean = mean(value))
-  
-  
-  aa_michael.mean.df = dcast(aa_michael.combat.long.mean, formula=variable~ORF, value.var="mean")
-  aa_michael.mean.matrix = as.matrix(aa_michael.mean.df[,-1])
-  rownames(aa_michael.mean.matrix) = aa_michael.mean.df$variable
-  
-  
-  metabolites.binded = rbind(metabolites.long.mean.models, aa_michael.combat.long.mean)
+  metabolites.binded = metabolites.long.mean.models
   metabolites.all.mean.df = dcast(metabolites.binded, formula=variable~ORF, value.var="mean")
   
   p = ggplot(metabolites.binded, aes(x=exp(mean))) +
@@ -836,6 +867,18 @@ p = ggplot(toPlot, aes(x = metabolite, y = r.squared)) +
 file_name = paste(fun_name, "report.pdf", sep=".")
 file_path = paste(models_dir, file_name, sep="/")
 ggsave(p, filename=file_path, height=8.27+0.1*8.27, width = 11.69+0.1*11.69) 
+
+resultsAA$dataset = "selectedAA"
+resultsPPP_AA$dataset = "screenPPP_AA"
+resultsTCA$dataset = "selectedTCA"
+
+model_results = rbind(resultsAA, resultsPPP_AA, resultsTCA)
+file_name = paste("model_results", "RData", sep=".")
+file_path = paste(output_dir, file_name, sep="/")
+save(model_results,file=file_path)
+
+
+
 
 
 
