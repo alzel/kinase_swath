@@ -121,7 +121,7 @@ clean_data_TCA = function(imputed = F) {
   pheno$measure_batch = factor(pheno$measure_batch)
   
   mod = model.matrix(~as.factor(ORF), data=pheno)
-  metabolitesTCA.matrix.combat = exp(ComBat(log(t(metabolitesTCA.imputed.matrix)), batch=pheno$measure_batch, mod=mod, par.prior=T))
+  metabolitesTCA.matrix.combat = ComBat(log(t(metabolitesTCA.imputed.matrix), batch=pheno$measure_batch, mod=mod, par.prior=T))
   metabolitesTCA.matrix.combat.long = melt(t(metabolitesTCA.matrix.combat), id.vars="rownames")
   names(metabolitesTCA.matrix.combat.long) = c("sample_id","variable", "value")
   
@@ -181,8 +181,8 @@ clean_data_TCA = function(imputed = F) {
 #   file_path = paste(models_dir, file_name, sep="/")
 #   save_plots(plots.list, filename=file_path, type="l") 
     
-  return(list(proteins = proteinsTCA.present,
-              metabolites = metabolitesTCA.present))
+  return(list(proteins = exp(proteinsTCA.present),
+              metabolites = exp(metabolitesTCA.present)))
 }
 
 
@@ -276,8 +276,8 @@ clean_data_AA = function() {
 #   file_path = paste(models_dir, file_name, sep="/")
 #   save_plots(plots.list, filename=file_path, type="l") 
   
-  return(list(proteins = proteinsAA.present,
-              metabolites = metabolitesAA.present))
+  return(list(proteins = exp(proteinsAA.present,
+              metabolites = exp(metabolitesAA.present)))
   
 }
 
@@ -303,6 +303,7 @@ clean_data_PPP_AA = function(imputed = F) {
   rownames(metabolites.matrix) = metabolites.df$variable
   
   
+
   metabolites.matrix.t = t(metabolites.matrix)
   set.seed(123)
   metabolites.imputed = amelia(metabolites.matrix.t, logs=colnames(metabolites.matrix.t), m=5)
@@ -467,8 +468,8 @@ clean_data_PPP_AA = function(imputed = F) {
 #   file_path = paste(models_dir, file_name, sep="/")
 #   save_plots(plots.list, filename=file_path, type="l")  
   
-  return(list(proteins = proteins.mean.matrix.present,
-              metabolites = metabolites.all.mean.matrix.present))
+  return(list(proteins = exp(proteins.mean.matrix.present),
+              metabolites = exp(metabolites.all.mean.matrix.present)))
 }
 
 createDataset = function(response.matrix, predictors.matrix, order, include.metabolites, output_dir, preffix="dataset") {
@@ -526,6 +527,9 @@ createDataset(response.matrix=dataTCA$metabolites,
               predictors.matrix=dataTCA$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.TCA")
 
 createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA")
+
+createDataset(response.matrix=dataTCA$metabolites, 
               predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA")
 
 
@@ -538,6 +542,9 @@ dir.create(output_dir, recursive=T)
 
 createDataset(response.matrix=dataTCA.imputed$metabolites, 
               predictors.matrix=dataTCA$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.imputed")
+
+createDataset(response.matrix=dataTCA.imputed$metabolites, 
+              predictors.matrix=dataTCA$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA.imputed")
 
 createDataset(response.matrix=dataTCA$metabolites, 
               predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.imputed")
@@ -556,6 +563,10 @@ createDataset(response.matrix=dataAA$metabolites,
               predictors.matrix=dataAA$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.AA")
 
 createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.AA")
+
+
+createDataset(response.matrix=dataAA$metabolites, 
               predictors.matrix=dataAA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.AA")
 
 ## -- PPP ----
@@ -569,6 +580,9 @@ createDataset(response.matrix=dataPPP_AA$metabolites,
               predictors.matrix=dataPPP_AA$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA")
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.PPP_AA")
+
+createDataset(response.matrix=dataPPP_AA$metabolites, 
               predictors.matrix=dataPPP_AA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA")
 
 
@@ -580,6 +594,10 @@ dir.create(output_dir, recursive=T)
 
 createDataset(response.matrix=dataPPP_AA.imputed$metabolites, 
               predictors.matrix=dataPPP_AA.imputed$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.imputed")
+
+
+createDataset(response.matrix=dataPPP_AA.imputed$metabolites, 
+              predictors.matrix=dataPPP_AA.imputed$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.PPP_AA.imputed")
 
 
 createDataset(response.matrix=dataPPP_AA.imputed$metabolites, 
