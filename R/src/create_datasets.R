@@ -121,7 +121,7 @@ clean_data_TCA = function(imputed = F) {
   pheno$measure_batch = factor(pheno$measure_batch)
   
   mod = model.matrix(~as.factor(ORF), data=pheno)
-  metabolitesTCA.matrix.combat = ComBat(log(t(metabolitesTCA.imputed.matrix), batch=pheno$measure_batch, mod=mod, par.prior=T))
+  metabolitesTCA.matrix.combat = ComBat(log(t(metabolitesTCA.imputed.matrix)), batch=pheno$measure_batch, mod=mod, par.prior=T)
   metabolitesTCA.matrix.combat.long = melt(t(metabolitesTCA.matrix.combat), id.vars="rownames")
   names(metabolitesTCA.matrix.combat.long) = c("sample_id","variable", "value")
   
@@ -276,7 +276,7 @@ clean_data_AA = function() {
 #   file_path = paste(models_dir, file_name, sep="/")
 #   save_plots(plots.list, filename=file_path, type="l") 
   
-  return(list(proteins = exp(proteinsAA.present,
+  return(list(proteins = exp(proteinsAA.present),
               metabolites = exp(metabolitesAA.present)))
   
 }
@@ -550,7 +550,9 @@ createDataset(response.matrix=dataTCA$metabolites,
               predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.imputed")
 
 
+dataAA$proteins
 
+intersect(rownames(dataTCA$metabolites), rownames(dataAA$metabolites))
 
 ## -- AA ----
 dataAA = clean_data_AA()
@@ -602,6 +604,21 @@ createDataset(response.matrix=dataPPP_AA.imputed$metabolites,
 
 createDataset(response.matrix=dataPPP_AA.imputed$metabolites, 
               predictors.matrix=dataPPP_AA.imputed$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.imputed")
+
+
+
+## -- TCA & AA ---- 
+output_dir = "./results/2015-08-03/data.TCA_AA"
+common = intersect(rownames(dataAA$proteins), rownames(dataTCA$proteins))
+unlink(output_dir, recursive = T, force = FALSE)
+dir.create(output_dir, recursive=T)
+
+
+common_metabolites = cbind(dataTCA$metabolites[match(common, rownames(dataTCA$metabolites)),], dataAA$metabolites[match(common, rownames(dataAA$metabolites)),])
+common_proteins = dataTCA$proteins[match(rownames(common_metabolites), rownames(dataTCA$proteins)),]
+
+createDataset(response.matrix=common_metabolites,
+              predictors.matrix=common_proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA_AA")
 
 
 
