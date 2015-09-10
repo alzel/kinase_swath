@@ -261,10 +261,10 @@ save(peptides.matrix.combat.quant,file=file_path)
 # Signal<- fit$coef[,1:(ncol(X)-1)]%*%t(X[,1:(ncol(X)-1)])
 # after  = peptides.matrix - Batch
 
-load("R/objects/peptides.matrix.combat.quant.RData")
 
-before = peptides.matrix
+before = exp(peptides.matrix)
 after = peptides.matrix.combat.quant
+
 
 
 pca = prcomp(t(before), scale.=T)
@@ -274,7 +274,7 @@ x_var = round(pca$sdev[x.n]^2/sum(pca$sdev^2)*100,2)
 y_var = round(pca$sdev[y.n]^2/sum(pca$sdev^2)*100,2)
 annot = data.frame(x_var, y_var, type="before")
 
-scores = as.data.frame(pca$x)
+scores = as.data.frame(pca$x[,1:5])
 scores$type = "before"
 scores$sample.id = rownames(scores)
 
@@ -285,19 +285,30 @@ x_var = round(pca$sdev[x.n]^2/sum(pca$sdev^2)*100,2)
 y_var = round(pca$sdev[y.n]^2/sum(pca$sdev^2)*100,2)
 annot = rbind(annot,data.frame(x_var, y_var, type="after"))
 
-scores = rbind(scores, data.frame(sample.id = rownames(scores), pca$x, type = "after"))
+scores = rbind(scores, data.frame(sample.id = rownames(scores), pca$x[,1:5], type = "after"))
 scores$batch_kmeans = factor(pheno$batch_kmeans[match(scores$sample.id, pheno$sample_name)])
+scores$batch = factor(pheno$batch.exp.n[match(scores$sample.id, pheno$sample_name)])
 scores.mix = scores[grepl(pattern="mix", ignore.case=T, x=rownames(scores)),]
 scores$type = factor(scores$type, levels=c("before", "after"))
 
+annot$text = paste(annot$x_var, annot$y_var)
+
 library(cowplot)
-p = ggplot(scores, aes(x=PC1, y=PC2, col=batch_kmeans )) + 
-  geom_point(size=3) +
+p = ggplot(scores, aes(x=PC1, y=PC2)) + 
+  geom_point(size=3, aes(col=batch) )+
   geom_vline(xintercept = 0) +
   geom_hline(yintercept = 0) +
   geom_point(data=scores.mix, aes(x=PC1, y=PC2),size=3,col="black", shape=17) +
-  scale_x_continuous("")
-  facet_wrap(~type, scales="free") + theme(aspect.ratio = 1) 
+  geom_text(data = annot, aes(x=-50, y=-50, label=text)) +
+  facet_wrap(~type, scales="fixed") + 
+  theme(aspect.ratio = 1, 
+        axis.text = element_text(size = rel(1.5)))
+        
+file_name = paste(fun_name,"batch_effects", "pdf", sep=".")
+file_path = paste(figures_dir, file_name, sep="/")
+ggsave(filename=file_path, plot=p, height=8.27, width = 2*8.27)
+
+
 
 # pca
 # message("plotting PCA results")
