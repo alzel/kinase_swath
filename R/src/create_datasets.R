@@ -143,7 +143,8 @@ clean_data_TCA = function(imputed = F) {
   if (!imputed) {
     metabolitesTCA.long$value.combat[is.na(metabolitesTCA.long$value.raw)] = NA
   }
-  proteins.matrix = proteins.matrix.combat.quant
+  
+  proteins.matrix = proteins.matrix.combat
   
   proteins.long = melt(proteins.matrix, id.vars="rownames")
   names(proteins.long) = c("ORF", "R.Label", "signal")
@@ -176,13 +177,11 @@ clean_data_TCA = function(imputed = F) {
   
   proteinsTCA.present = proteins.matrix.combat.t.f[match(both.present, rownames(proteins.matrix.combat.t.f)),]
   metabolitesTCA.present = metabolitesTCA.final.matrix[match(both.present, rownames(metabolitesTCA.final.matrix)),]
-  
-#   file_name = paste(fun_name, "clean.pdf", sep=".")
-#   file_path = paste(models_dir, file_name, sep="/")
-#   save_plots(plots.list, filename=file_path, type="l") 
-    
+
   return(list(proteins = exp(proteinsTCA.present),
-              metabolites = exp(metabolitesTCA.present)))
+              metabolites = exp(metabolitesTCA.present),
+              proteins.log = proteinsTCA.present,
+              proteins.log.quant = normalizeQuantiles(proteinsTCA.present)))
 }
 
 
@@ -257,8 +256,7 @@ clean_data_AA = function() {
   aa.data.combat.final.matrix = aa.data.combat.final.matrix[!is.na(rownames(aa.data.combat.final.matrix)),]
   
   ##AA proteins
-  proteins.matrix = proteins.matrix.combat.quant
-    
+  proteins.matrix = proteins.matrix.combat
   proteins.matrix.combat.t = t(proteins.matrix)
   proteins.matrix.combat.t.f = proteins.matrix.combat.t[rownames(proteins.matrix.combat.t) %in% as.vector(AAmetadata$prot.sample_id),]
   
@@ -268,16 +266,14 @@ clean_data_AA = function() {
   aa.data.combat.final.matrix = aa.data.combat.final.matrix[rownames(aa.data.combat.final.matrix) %in% both.present,]
   
   proteinsAA.present = proteins.matrix.combat.t.f[match(both.present, rownames(proteins.matrix.combat.t.f)),]
-  metabolitesAA.present = aa.data.combat.final.matrix[match(both.present, rownames(aa.data.combat.final.matrix)),]  
   
+  metabolitesAA.present = aa.data.combat.final.matrix[match(both.present, rownames(aa.data.combat.final.matrix)),]  
   metabolitesAA.present = metabolitesAA.present[,-which(colnames(metabolitesAA.present) == "isoleucine")]
   
-#   file_name = paste(fun_name, "clean.pdf", sep=".")
-#   file_path = paste(models_dir, file_name, sep="/")
-#   save_plots(plots.list, filename=file_path, type="l") 
-  
   return(list(proteins = exp(proteinsAA.present),
-              metabolites = exp(metabolitesAA.present)))
+              metabolites = exp(metabolitesAA.present),
+              proteins.log = proteinsAA.present,
+              proteins.log.quant = normalizeQuantiles(proteinsAA.present)))
   
 }
 
@@ -381,78 +377,9 @@ clean_data_PPP_AA = function(imputed = F) {
   metabolites.mean.models.df = dcast(metabolites.long.mean.models, formula=variable~ORF, value.var="mean")
   metabolites.mean.matrix = as.matrix(metabolites.mean.models.df[,-1])
   rownames(metabolites.mean.matrix) = metabolites.mean.models.df$variable
-  
-  #   ## -- amino acids from michael ----
-  #   
-  #   load("./R/objects/aa_michael.metadata._clean_.RData")
-  #   load("./R/objects/aa_michael.data._clean_.RData")
-  #   
-  #   aa_michael.data$date = aa_michael.metadata$date[match(aa_michael.data$sample_id, aa_michael.metadata$sample_id)]
-  #   aa_michael.data$batch = aa_michael.metadata$batch[match(aa_michael.data$sample_id, aa_michael.metadata$sample_id)]
-  #   
-  #   qc_points = aa_michael.data[grep(x=aa_michael.data$sample_id, pattern="QC", ignore.case=T),]
-  #   
-  #   
-  #   library(scales)
-  #   p1 = ggplot(aa_michael.data, aes(x=batch, y=value)) +
-  #     geom_point() +
-  #     geom_point(data=qc_points, aes(x=batch, y=value), col="red") +
-  #     ggtitle("Before correction")+
-  #     #scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d")) +
-  #     facet_wrap(~variable, scales="free")
-  #   
-  #     
-  #   pheno = aa_michael.metadata
-  #   
-  #   aa_michael.data.df = dcast(aa_michael.data, sample_id~variable, value.var="value")
-  #   aa_michael.data.matrix = as.matrix(aa_michael.data.df[,-1])
-  #   rownames(aa_michael.data.matrix) = aa_michael.data.df$sample_id
-  #   
-  #   
-  #   #correcting for batch effects Michael's data
-  #   aa_michael.data.matrix = aa_michael.data.matrix[complete.cases(aa_michael.data.matrix),]
-  #   pheno = droplevels(pheno[match(rownames(aa_michael.data.matrix), pheno$sample_id),])
-  #   aa_michael.data.matrix.t = t(aa_michael.data.matrix)
-  #   
-  #   mod = model.matrix(~ORF, data=pheno)
-  #   stopifnot(length(pheno$batch) == ncol(aa_michael.data.matrix.t))
-  #   
-  #   aa_michael.data.matrix.combat = ComBat(log(aa_michael.data.matrix.t), batch=pheno$batch, mod=mod, par.prior=T)
-  #   aa_michael.data.combat.long = melt(t(aa_michael.data.matrix.combat), id.vars="rownames")
-  #   names(aa_michael.data.combat.long) = c("sample_id","variable","value" )
-  #   
-  #   aa_michael.data.combat.long$batch = aa_michael.metadata$batch[match(aa_michael.data.combat.long$sample_id, aa_michael.metadata$sample_id)]
-  #   qc_points.combat = aa_michael.data.combat.long[grep(x=aa_michael.data.combat.long$sample_id, pattern="QC", ignore.case=T),]
-  #   
-  #   
-  #   p2 = ggplot(aa_michael.data.combat.long, aes(x=batch, y=value)) +
-  #     geom_point() +
-  #     geom_point(data=qc_points.combat, aes(x=batch, y=value), col="red") +
-  #     ggtitle("After correction") +
-  #     facet_wrap(~variable, scales="free")
-  #   
-  #   g = arrangeGrob(p1,p2, ncol=1)
-  #   plots.list = lappend(plots.list, g)
-  #   
-  #   aa_michael.data.combat.long$ORF = aa_michael.metadata$ORF[match(aa_michael.data.combat.long$sample_id, aa_michael.metadata$sample_id)]
-  #   aa_michael.combat.long.mean = tbl_df(aa_michael.data.combat.long) %>% group_by(variable, ORF) %>% summarize(mean = mean(value))
-  #   
-  #   
-  #   aa_michael.mean.df = dcast(aa_michael.combat.long.mean, formula=variable~ORF, value.var="mean")
-  #   aa_michael.mean.matrix = as.matrix(aa_michael.mean.df[,-1])
-  #   rownames(aa_michael.mean.matrix) = aa_michael.mean.df$variable
-  
-  
-  #   metabolites.binded = rbind(metabolites.long.mean.models, aa_michael.combat.long.mean)
-  #   metabolites.all.mean.df = dcast(metabolites.binded, formula=variable~ORF, value.var="mean")
-  
+
   metabolites.binded = metabolites.long.mean.models
   metabolites.all.mean.df = dcast(metabolites.binded, formula=variable~ORF, value.var="mean")
-  
-#   p = ggplot(metabolites.binded, aes(x=exp(mean))) +
-#     geom_density() +
-#     facet_wrap(~variable, scales="free")
-#   plots.list = lappend(plots.list, p)
   
   metabolites.all.mean.matrix = as.matrix(metabolites.all.mean.df[,-1])
   rownames(metabolites.all.mean.matrix) = metabolites.all.mean.df$variable
@@ -462,15 +389,13 @@ clean_data_PPP_AA = function(imputed = F) {
   proteins.mean.matrix.present = t(proteins.mean.matrix[,match(both.present, colnames(proteins.mean.matrix))])
   metabolites.all.mean.matrix.present = t(metabolites.all.mean.matrix[,match(both.present, colnames(metabolites.all.mean.matrix))])
   
-#   plots.list = lappend(plots.list, p)
-#   
-#   file_name = paste(fun_name, "clean.pdf", sep=".")
-#   file_path = paste(models_dir, file_name, sep="/")
-#   save_plots(plots.list, filename=file_path, type="l")  
-  
   return(list(proteins = exp(proteins.mean.matrix.present),
-              metabolites = exp(metabolites.all.mean.matrix.present)))
+              metabolites = exp(metabolites.all.mean.matrix.present),
+              proteins.log = proteins.mean.matrix.present,
+              proteins.log.quant = normalizeQuantiles(proteins.mean.matrix.present)))
 }
+
+
 
 createDataset = function(response.matrix, predictors.matrix, order, include.metabolites, output_dir, preffix="dataset") {
   
@@ -532,6 +457,27 @@ createDataset(response.matrix=dataTCA$metabolites,
 createDataset(response.matrix=dataTCA$metabolites, 
               predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA")
 
+## -- TCA proteins log ----
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.log")
+
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins.log, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA.log")
+
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.log")
+
+## -- TCA proteins log quant ----
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins.log.quant, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.log.quant")
+
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins.log.quant, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA.log.quant")
+
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.log.quant")
+
+
 
 ## -- TCA imputed ----
 dataTCA.imputed = clean_data_TCA(imputed=T)
@@ -549,8 +495,6 @@ createDataset(response.matrix=dataTCA.imputed$metabolites,
 createDataset(response.matrix=dataTCA$metabolites, 
               predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.imputed")
 
-
-dataAA$proteins
 
 intersect(rownames(dataTCA$metabolites), rownames(dataAA$metabolites))
 
@@ -571,6 +515,32 @@ createDataset(response.matrix=dataAA$metabolites,
 createDataset(response.matrix=dataAA$metabolites, 
               predictors.matrix=dataAA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.AA")
 
+## -- AA proteins log ----
+
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.AA.log")
+
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins.log, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.AA.log")
+
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.AA.log")
+
+## -- AA proteins log quant ----
+
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins.log.quant, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.AA.log.quant")
+
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins.log.quant, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.AA.log.quant")
+
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.AA.log.quant")
+
+
+
+
+
 ## -- PPP ----
 
 dataPPP_AA = clean_data_PPP_AA(imputed=F)
@@ -586,6 +556,33 @@ createDataset(response.matrix=dataPPP_AA$metabolites,
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
               predictors.matrix=dataPPP_AA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA")
+
+## -- proteins PPP log ----
+
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.log")
+
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins.log, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.PPP_AA.log")
+
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.log")
+
+
+## -- proteins PPP log quant ----
+
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins.log.quant, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.log.quant")
+
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins.log.quant, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.PPP_AA.log.quant")
+
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.log.quant")
+
+
+
+
 
 
 ## -- PPP imputed ----
