@@ -27,7 +27,8 @@ orf2name$gene_name[orf2name$gene_name ==""] = orf2name$ORF[orf2name$gene_name ==
 
 fun_name = "lm_models2"
 
-filesToProcess = dir(path=input_path, pattern = "[12].[01]+.linear_models.RData$", recursive=F)
+#filesToProcess = dir(path=input_path, pattern = "[12].[01]+.linear_models.RData$", recursive=F)
+filesToProcess = dir(path=input_path, pattern = "[123].[01]+.linear_models.RData$", recursive=F)
 filesToProcess = grep(pattern="imputed", invert=T, filesToProcess, value=T)
 
 pattern.p = "data.(\\w+).(.*?).([0-9]+).([0-9]+).linear_models.RData$"
@@ -112,9 +113,9 @@ all_final_models.aic$isAutocorrelation.bonferoni = ifelse(all_final_models.aic$b
 all_final_models.aic$isAutocorrelation = ifelse(all_final_models.aic$bg.p.value < auto_thr, 1, 0)
 
 #selecting best representative model based on adj R2
-models.filtered = all_final_models.aic %>% filter(type == "after", ismetIncluded == 0, degree == 1, 
+models.filtered = all_final_models.aic %>% filter(type == "after", 
                                                   isImputed == 0 , isAutocorrelation.bonferoni == 0) %>%
-                                                  group_by(dataset, metabolite) %>% 
+                                                  group_by(dataset, metabolite, ismetIncluded, degree) %>% 
                                                   summarise(formula = formula[which.max(adj.r.squared)],
                                                             median.cv.r2 = median.cv.r2[which.max(adj.r.squared)],
                                                             adj.r.squared = adj.r.squared[which.max(adj.r.squared)],
@@ -126,15 +127,26 @@ models.filtered = all_final_models.aic %>% filter(type == "after", ismetIncluded
 
 plots.list = list()
 
-
-
 ## all adjusted R2 plots
 toPlot = subset(all_final_models.aic, ismetIncluded == 0 & degree == 1 )
+toPlot = all_final_models.aic
 p = ggplot(toPlot, aes(x = metabolite, y = adj.r.squared, colour=type, shape = normalization)) +
            geom_point() +
            geom_point(data=toPlot, aes(y = median.cv.r2 , colour = "black")) +
-           facet_wrap(~dataset, scales = "free") + 
+           facet_wrap(ismetIncluded~dataset+degree, scales = "free") + 
            theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plots.list = lappend(plots.list, p)
+
+
+## all median.cv.r2 plots
+toPlot = subset(all_final_models.aic, type == "before")
+p = ggplot(toPlot, aes(x = metabolite, y = median.cv.r2,  shape = normalization)) +
+  geom_point() +
+  #geom_point(data=toPlot, aes(y = median.cv.r2 , colour = 1)) +
+  facet_wrap(ismetIncluded~dataset+degree, scales = "free") + 
+  #facet_wrap(~dataset, scales = "free") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
 plots.list = lappend(plots.list, p)
 
 toPlot = models.filtered %>% ungroup() %>% arrange(dataset, adj.r.squared)
@@ -143,9 +155,8 @@ toPlot$metabolite = factor(toPlot$metabolite, levels = unique(toPlot$metabolite)
 p = ggplot(toPlot, aes(x = metabolite, y = adj.r.squared)) +
           geom_point() +
           geom_linerange(data = toPlot , aes(x=metabolite,ymin=0, ymax=adj.r.squared))+
-          facet_wrap(~dataset, scales = "free_x") + 
+          facet_wrap(ismetIncluded~dataset+degree, scales = "free") + 
           theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
 plots.list = lappend(plots.list, p)
 
 # 
@@ -291,11 +302,12 @@ all_final_models.models$isAutocorrelation = ifelse(all_final_models.models$bg.p.
 all_final_models.models$mode = factor(ifelse(all_final_models.models$coefficients > 0,1,0))
 
 #selecting best representative model based on adj R2 out of all normalization methods
-all_final_models.models = all_final_models.models %>% filter(type == "after", ismetIncluded == 0, degree == 1, 
+#all_final_models.models = all_final_models.models %>% filter(type == "after", ismetIncluded == 0, degree == 1,
+all_final_models.models = all_final_models.models %>% filter(type == "after",  
                                    isImputed == 0 , isAutocorrelation.bonferoni == 0) %>%
-                                   group_by(dataset, model, metabolite) %>% 
+                                   group_by(dataset, model, metabolite, ismetIncluded, degree) %>% 
                                    mutate(the_best = adj.r.squared == max(adj.r.squared)) %>% # best among normalization methods
-                                   group_by(dataset, metabolite) %>% 
+                                   group_by(dataset, metabolite, ismetIncluded, degree) %>% 
                                    mutate(the_super_best = adj.r.squared == max(adj.r.squared)) #the best model
 
 all_final_models.models$varname = orf2name$gene_name[match(all_final_models.models$variables, orf2name$ORF)]
@@ -303,34 +315,59 @@ all_final_models.models$varname[which(is.na(all_final_models.models$varname))] =
 tmp.lev = unique(sort(all_final_models.models$varname))
 all_final_models.models$varname = factor(all_final_models.models$varname, levels=c("stats", tmp.lev[tmp.lev != "stats"]))
 
-for ( i in c("AA", "PPP_AA", "TCA") ) {
+
+
+## ---- variable plots ----
+for ( i in c("AA", "PPP_AA", "TCA", "TCA_AA") ) {
     
-  toPlot  =  all_final_models.models %>% 
-    filter(type == "after", ismetIncluded == 0, degree == 1, adj.r.squared > 0.1,
-           isImputed == 0 , isAutocorrelation.bonferoni == 0, dataset == i, the_best == T)
-  
-  p = ggplot() +
-    geom_text(data=toPlot, aes(x=factor(model), y = varname, label=round(stats_text,2))) +
-    geom_point(data=toPlot, aes(x=factor(model), y = varname, 
-                                size=abs(coefficients), color = mode)) +
-    facet_wrap(dataset~metabolite, scales="free") +
-    xlab("Candidate model") + 
-    ylab("Enzyme predictors") +
-    theme_light() + 
-    scale_size_continuous(name="Effect size",
-                        breaks=c(0.25, 0.5, 1),
-                        labels = c("low", "medium", "strong")) +
-    scale_color_discrete(name="Predictor's effect",
-                         breaks = c(0, 1),
-                         labels = c("negative", "positive") )
-  
-  plots.list = lappend(plots.list, p)
+    toPlot  = dplyr::filter(all_final_models.models, type == "after", adj.r.squared > 0.1, isImputed == 0 , isAutocorrelation.bonferoni == 0, dataset == i, the_best == T)
+        
+    for( d in unique(as.character(toPlot$degree))) {
+      toPlot.tmp = toPlot %>% ungroup() %>% filter(degree == d)
+      variables = unique(toPlot.tmp$metabolite)
+                    
+      noVars = length(variables)
+      noPlots = 12
+      
+      plotSequence <- c(seq(0, length(variables)-1, by = noPlots), noVars)
+          
+      for(ii in 2:length(plotSequence)){
+        # select start and end of variables to plot
+        start <- plotSequence[ii-1] + 1
+        end <- plotSequence[ii]  
+        
+        tmp = droplevels(toPlot.tmp[toPlot.tmp$metabolite %in% variables[start:end],])
+        
+        p = ggplot() +
+          geom_text(data=tmp, aes(x=factor(model), y = varname, label=round(stats_text,2))) +
+          geom_point(data=tmp, aes(x=factor(model), y = varname, 
+                                   size=abs(coefficients), color = mode)) +
+          facet_wrap(dataset~metabolite+degree, scales="free") +
+          xlab("Candidate model") + 
+          ylab("Enzyme predictors") +
+          theme_light() + 
+          scale_size_continuous(name="Effect size",
+                                breaks=c(0.25, 0.5, 1),
+                                labels = c("low", "medium", "strong")) +
+          scale_color_discrete(name="Predictor's effect",
+                               breaks = c(0, 1),
+                               labels = c("negative", "positive") )
+        
+        plots.list = lappend(plots.list, p)      
+
+    }
+  }
 }
 
+
+file_name = paste(fun_name, "report_part1.pdf", sep=".")
+file_path = paste(figures_dir, file_name, sep="/")
+save_plots(plots.list, filename=file_path, type="l")
 
 
 
 # BRENDA vs concentrations
+plots.list = list()
 brenda <- read.delim("./data/2015-10-07/brenda.txt")
 load("./R/objects/proteins.matrix.combat.RData")
 
@@ -344,103 +381,7 @@ coverage.ec$kegg_id = metabolite2iMM904$kegg_id[match(coverage.ec$metabolite, me
 brenda.f = brenda[!brenda$KEGGID == "",]
 brenda.f = brenda.f[grep(pattern="mutant|recombinant", x= brenda.f$commentary, invert=T),]
 
-# #TCA data
-# load("./R/objects/dataTCA.create_datasets.RData")
-# 
-# metabolitesTCA.long = melt(dataTCA$metabolites)
-# 
-# # adjust concentration with volume and OD from this paper: doi:10.1016/j.funbio.2009.11.002
-# my.vol = c(median = 45.54, sd = 0.9) * 1e-15 # cell vol
-# my.cells = 3.2 * 10^7 * 1.5*5 # median of spectrophotometre data
-# ex.vol = 100*1e-6
-# 
-# metabolitesTCA.long$concentration = metabolitesTCA.long$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
-# 
-# 
-# metabolitesTCA.long = merge(metabolitesTCA.long, subset(metabolite2iMM904,select=c("id", "kegg_id")), by.x="X2", by.y="id")
-# 
-# 
-# metabolitesTCA.long$label = metabolite2iMM904$official_name[match(metabolitesTCA.long$kegg_id, metabolite2iMM904$kegg_id )]
-# 
-# metabolitesTCA.long = merge(brenda.f, metabolitesTCA.long, by.x="KEGGID", by.y="kegg_id")
-# metabolitesTCA.long = metabolitesTCA.long[metabolitesTCA.long$kmValue > 0,]
-# 
-# 
-# p = ggplot(metabolitesTCA.long, aes(x = concentration, y = kmValue)) +
-#       geom_point() +
-#       facet_wrap(~label, scales="free")
-# plots.list = lappend(plots.list, p)
-# 
-# 
-# # AA data
-# load("./R/objects/dataAA.create_datasets.RData")
-# metabolitesAA.long = melt(dataAA$metabolites)
-# 
-# # adjust concentration with volume and OD from this paper: doi:10.1016/j.funbio.2009.11.002
-# my.vol = c(median = 45.54, sd = 0.9) * 1e-15 # cell vol
-# my.cells = 3.2 * 10^7 * 1.5*5 # median of spectrophotometre data
-# ex.vol = 200*1e-6
-# 
-# metabolitesAA.long$concentration = metabolitesAA.long$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
-# metabolitesAA.long = merge(metabolitesAA.long, unique(droplevels(subset(metabolite2iMM904,select=c("id", "kegg_id")))), by.x="X2", by.y="id")
-# metabolitesAA.long = merge(brenda.f, metabolitesAA.long, by.x="KEGGID", by.y="kegg_id")
-# metabolitesAA.long = metabolitesAA.long[metabolitesAA.long$kmValue > 0,]
-# metabolitesAA.long$label = metabolite2iMM904$official_name[match(metabolitesAA.long$KEGGID, metabolite2iMM904$kegg_id )]
-# 
-# models.summary = all_final_models.models %>% filter(the_super_best == T) %>% 
-#   dplyr::select(metabolite, dataset,variables, adj.r.squared) 
-# 
-# models.summary = models.summary[models.summary$variables != "stats",]
-# models.summary = merge(models.summary, ec.gene, by.x = "variables", by.y = "V4")
-# models.summary$kegg_id = metabolite2iMM904$kegg_id[match(models.summary$metabolite, metabolite2iMM904$id)]
-# models.summary = models.summary%>% arrange(metabolite, dataset)
-# 
-# 
-# ec.presence  = unique(ddply(metabolitesAA.long, .variables=.(KEGGID), 
-#                             .fun=function(x) {
-#                               met_id = as.character(unique(x$KEGGID))
-#                               z = data.frame (ecNumber = x$ecNumber,
-#                                               inNetwork = x$ecNumber %in% coverage.ec$V1[coverage.ec$kegg_id == met_id],
-#                                               isPredictor = x$ecNumber %in% models.summary$V1[models.summary$kegg_id == met_id] )
-#                               return(z)
-#                             }))
-# 
-# metabolitesAA.long = merge(metabolitesAA.long, ec.presence, by = c("KEGGID", "ecNumber"))
-# toPlot = metabolitesAA.long %>% filter(inNetwork == T)
-# 
-# p = ggplot(toPlot, aes(x = concentration, y = kmValue)) +
-#       geom_point() +
-#       facet_wrap(~label, scales="free")
-# 
-# plots.list = lappend(plots.list, p)
-# 
-# 
-# # checking for saturation
-# metabolitesAA.long = metabolitesAA.long %>% mutate(ratio = concentration/kmValue)
-# toPlot = metabolitesAA.long %>% filter(inNetwork == T)
-# points = metabolitesAA.long %>% filter(isPredictor == T)
-# 
-# t.test(log(toPlot$ratio), mu=0, alternative="greater")
-# t.test(log(points$ratio), mu=0, alternative="greater")
-# 
-# p = ggplot(toPlot, aes(y=log(ratio), x = label)) +  
-#       geom_boxplot() +
-#       geom_point(data=points, aes(y=log(ratio), x = label), col="red") +
-#       geom_hline(yintercept = 0)
-# plots.list = lappend(plots.list, p)
-# 
-# p = ggplot(toPlot, aes(x=log(ratio))) +  
-#       geom_histogram()+
-#       geom_histogram(data=points, aes(x=log(ratio)), fill="red") +
-#       geom_vline(xintercept = 0)
-# plots.list = lappend(plots.list, p)
-# 
-# 
 
-# 
-# file_name = paste(fun_name, "report.pdf", sep=".")
-# file_path = paste(figures_dir, file_name, sep="/")
-# save_plots(plots.list, filename=file_path, type="l")
 
 
 #######
@@ -469,16 +410,13 @@ metabolitesAA.long$concentration = metabolitesAA.long$value*ex.vol/(my.cells*my.
 
 
 metabolites.long = rbind(metabolitesAA.long, metabolitesTCA.long)
-
-
-
 metabolites.long = merge(metabolites.long, unique(droplevels(subset(metabolite2iMM904,select=c("id", "kegg_id")))), by.x="X2", by.y="id")
 metabolites.long = merge(brenda.f, metabolites.long, by.x="KEGGID", by.y="kegg_id")
 metabolites.long = metabolites.long[metabolites.long$kmValue > 0,]
 metabolites.long$label = metabolite2iMM904$official_name[match(metabolites.long$KEGGID, metabolite2iMM904$kegg_id )]
 
-models.summary = all_final_models.models %>% filter(the_super_best == T) %>% 
-  dplyr::select(metabolite, dataset,variables, adj.r.squared) 
+models.summary = all_final_models.models %>% filter(degree==1, ismetIncluded == 0,  the_super_best == T) %>% 
+  dplyr::select(metabolite, degree, dataset,variables, adj.r.squared) 
 
 models.summary = models.summary[models.summary$variables != "stats",]
 models.summary = merge(models.summary, ec.gene, by.x = "variables", by.y = "V4")
@@ -502,7 +440,6 @@ toPlot = metabolites.long %>% filter(inNetwork == T)
 p = ggplot(toPlot, aes(x = concentration, y = kmValue)) +
   geom_point() +
   facet_wrap(~label, scales="free")
-
 plots.list = lappend(plots.list, p)
 
 # checking for saturation
@@ -510,28 +447,53 @@ metabolites.long = metabolites.long %>% mutate(ratio = concentration/kmValue)
 toPlot = metabolites.long %>% filter(inNetwork == T)
 points = metabolites.long %>% filter(isPredictor == T)
 
+
 p = ggplot(toPlot, aes(y=log(ratio), x = label)) +  
   geom_boxplot() +
   geom_point(data=points, aes(y=log(ratio), x = label), col="red") +
   geom_hline(yintercept = 0) +
   facet_wrap(~dataset, scales = "free", ncol=1) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 plots.list = lappend(plots.list, p)
+
+points = metabolites.long %>% filter(isPredictor == T)
+points.AA = points %>% filter(dataset == "AA")
+points.TCA = points %>% filter(dataset == "TCA")
+sum(log(metabolites.long$ratio) > 0, na.rm=T) / nrow(metabolites.long[!is.na(metabolites.long$ratio),]) # total
+sum(log(points.AA$ratio) > 0, na.rm=T) / nrow(points.AA[!is.na(points.AA$ratio),]) 
+
 
 saturation.stats = metabolites.long %>% group_by(dataset, isPredictor) %>% summarize (p.value = t.test(log(ratio), mu=0, alternative="greater")$p.value)
 saturation.stats$x = 5
 saturation.stats$y = 300
 saturation.stats$y[saturation.stats$isPredictor == T] = 250
 
+toPlot = metabolites.long %>% filter(inNetwork == T)
 p = ggplot(toPlot, aes(x=log(ratio))) +  
       geom_histogram()+
       geom_histogram(data=points, aes(x=log(ratio), fill=isPredictor)) +
       geom_text(data=saturation.stats, aes(x=x, y=y, color = isPredictor, label = paste("P-value =", round(p.value,2)))) +
       geom_vline(xintercept = 0) +
       facet_wrap(~dataset, scales = "free_y", ncol=1)
+
 plots.list = lappend(plots.list, p)
 
 
+# predictors AA vs TCA
+
+toPlot = metabolites.long %>% filter(inNetwork == T, isPredictor == T)
+stats = data.frame(label_text = c(log(median(toPlot$ratio[toPlot$dataset == "AA"], na.rm=T)/median(toPlot$ratio[toPlot$dataset == "TCA"], na.rm=T)),
+                             wilcox.test(log(toPlot$ratio[toPlot$dataset == "AA"]), log(toPlot$ratio[toPlot$dataset == "TCA"]))$p.value),
+                   x = -7,
+                   y = c(0.15, 0.13))
+
+toPlot$dataset = factor(toPlot$dataset)
+
+p = ggplot() +  
+      geom_density(data=toPlot, aes(x=log(ratio), fill=dataset), alpha = 0.5) +
+      geom_text(data=stats, aes(x=x+2, y=y, label = label_text)) 
+plots.list = lappend(plots.list, p)
 
 
 ## -- glutamate/glutamine examples ----
@@ -545,10 +507,11 @@ yeast.model = yeast.model %>% group_by(metabolite, gene) %>% dplyr::mutate( from
                                                                             from.ec = ifelse(side == "substrate", as.character(metabolite), as.character(ec_number)),
                                                                             to.ec   = ifelse(side == "substrate", as.character(ec_number), as.character(metabolite)))
 
-met = "glutamate"
+met = c("glutamate") 
+
+
 current_nodes = as.character(metabolite2iMM904$model_name[metabolite2iMM904$id %in% met])
 edgelist = data.frame(yeast.model %>% ungroup() %>% filter(metabolite %in% current_nodes))
-
 
 
 tmp.edge = data.frame(edgelist)
@@ -563,11 +526,21 @@ tmp.edge = data.frame(edgelist)
 
 model.edges = tmp.edge
 
-selected.model = all_final_models.models %>% ungroup() %>% filter(metabolite == met, the_super_best == T)
+selected.model = all_final_models.models %>% ungroup() %>% filter(metabolite %in% met, the_super_best == T)
+selected.model$metabolite_name = as.character(metabolite2iMM904$model_name[match(selected.model$metabolite, metabolite2iMM904$id)])
 
-idx = match(model.edges$gene, selected.model$variables)
-model.edges$weights = 0
-model.edges$weights = selected.model$coefficients[idx]
+
+model.edges = merge(model.edges, subset(selected.model, variables!= "stats", select = c("metabolite_name", "variables", "coefficients")), all.x=T,
+                          by.x = c("metabolite","gene"),
+                          by.y = c("metabolite_name", "variables"))
+    
+names(model.edges)[length(names(model.edges))] = "weights"
+# 
+# idx = match(model.edges$gene, selected.model$variables)
+# model.edges$weights = 0
+# model.edges$weights = selected.model$coefficients[idx]
+
+#model.edges$weights[is.na(model.edges$weights)] = 0
 
 model.edges = model.edges %>% arrange(gene, ec_number) %>% 
                                group_by(metabolite, gene) %>% 
@@ -576,7 +549,6 @@ model.edges = model.edges %>% arrange(gene, ec_number) %>%
                                                                ifelse(directionality == "<->", T, F))))
 
 model.edges = model.edges %>% arrange(gene, ec_number) 
-
 model.edges$gene_name = orf2name$gene_name[match(model.edges$gene, orf2name$ORF)]
 
 
@@ -612,7 +584,7 @@ write.graph(B, file=file_path, format="graphml")
 
 ## -- Energy metabolites example ----
 
-example.models = all_final_models.models %>% ungroup() %>% filter(dataset == "PPP_AA", the_super_best == T, metabolite %in% c("ATP", "ADP", "AMP")) %>% 
+example.models = all_final_models.models %>% ungroup() %>% filter(dataset == "PPP_AA", degree == 1, ismetIncluded == 0, the_super_best == T, metabolite %in% c("ATP", "ADP", "AMP")) %>% 
                                                            group_by(metabolite) %>% summarize(model = model[1],
                                                                                               type = type[1],
                                                                                               file = file[1],
@@ -645,11 +617,12 @@ read_models = function(x) {
 }
 
 
+
 prediction.list = lapply(tmp.list, FUN=read_models)
 prediction.models = do.call(rbind.data.frame, prediction.list)
 toPlot = prediction.models
 
-stats.text = preciction.models %>% group_by(metabolite, model) %>% summarise(adj.r.squared = as.numeric(as.character(adj.r.squared[1])),
+stats.text = prediction.models %>% group_by(metabolite, model) %>% summarise(adj.r.squared = as.numeric(as.character(adj.r.squared[1])),
                                                                              median.cv.r2 = as.numeric(as.character(median.cv.r2[1])))
 stats.text$x = -2
 stats.text$y = seq(2,1,length.out=nrow(stats.text))
@@ -665,22 +638,120 @@ p = ggplot(toPlot, aes(x = yhat, y=y, color = factor(metabolite))) +
       theme(aspect.ratio = 1)
 plots.list = lappend(plots.list, p)
 
+toPlot$metabolite = factor(toPlot$metabolite, levels = c("ATP", "ADP", "AMP"))
 p = ggplot(toPlot, aes(x = yhat, y=y))+
       geom_point() +
       geom_text(data=stats.text, aes(x=x,y=y,label=round(adj.r.squared,2)))+
-      facet_grid(~metabolite) +
+      facet_wrap(~metabolite, ncol = 1) +
       ylim(c(-3.5,3.5)) +
       xlim(c(-3.5,3.5)) + 
       xlab("Predicted metabolite levels, standartized value") +
       ylab("Observed metabolite levels, standartized value") +
+      geom_smooth(method=lm,   # Add linear regression lines
+                se=T,    # Don't add shaded confidence region
+                fullrange=TRUE) +
+      panel_border() +
       theme(aspect.ratio = 1)
-
 plots.list = lappend(plots.list, p)
 
+
+
+
+
+toPlot = all_final_models.models %>% ungroup() %>% filter(dataset != "PPP_AA", degree== 1, ismetIncluded == 0, the_super_best == T) %>% 
+                                                          group_by(dataset, metabolite, the_super_best) %>% 
+                                                          summarise(formula = unique(formula),
+                                                                    median.cv.r2 = unique(median.cv.r2),
+                                                                    adj.r.squared = unique(adj.r.squared),
+                                                                    r.squared = unique(r.squared),
+                                                                    model = unique(as.character(model)),
+                                                                    type = unique(as.character(type)),
+                                                                    datafile = unique(as.character(datafile)))
+
+#metabolite order
+
+metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
+metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
+
+toPlot = droplevels(toPlot)
+toPlot$metabolite = factor(toPlot$metabolite, levels=as.character(metabolite.order$metabolite))
+
+toPlot$met_name = metabolite2iMM904$official_name[match(toPlot$metabolite, metabolite2iMM904$id)]
+toPlot$met_name = factor(toPlot$met_name, levels=rev(as.character(metabolite.order$met_name)))
+toPlot$pathway = metabolite.order$pathway[match(toPlot$metabolite, metabolite.order$metabolite)]
+toPlot$pathway = factor(toPlot$pathway, levels = as.character(metabolite.order$pathway))
+p = ggplot(toPlot, aes(x = met_name, color=pathway)) +
+    geom_point(data=toPlot, aes( y = adj.r.squared), colour = "black", size=5) +
+    geom_point(data=toPlot, aes( y = median.cv.r2), colour="black", shape=17, size=5) +
+    geom_linerange(data = toPlot , aes(ymin=0, ymax=adj.r.squared)) +
+    coord_flip() + 
+    background_grid(major = "x", minor = "none") +
+    panel_border()
+    
+plots.list = lappend(plots.list, p)
+
+p = ggplot(toPlot, aes(x = met_name, color=pathway)) +
+    geom_point(data=toPlot, aes(y = adj.r.squared), colour = "black", size=5) +
+    #geom_point(data=toPlot, aes( y = median.cv.r2), colour="black", shape=17, size=5) +
+    geom_linerange(data = toPlot , aes(ymin=0, ymax=adj.r.squared)) +
+    coord_flip() + 
+    background_grid(major = "x", minor = "none") +
+    panel_border()
+plots.list = lappend(plots.list, p)
+
+toPlot = toPlot %>% ungroup() %>% arrange(dataset, adj.r.squared)
+toPlot$met_name = factor(toPlot$met_name, levels = toPlot$met_name)
+
+
+p = ggplot(toPlot, aes(x = met_name)) +
+  geom_point(data=toPlot, aes( y = adj.r.squared), colour = "black", size=3) +
+  #geom_point(data=toPlot, aes( y = median.cv.r2), colour="black", shape=17, size=5) +
+  geom_linerange(data = toPlot , aes(ymin=0, ymax=adj.r.squared)) +
+  coord_flip() + 
+  background_grid(major = "x", minor = "none") +
+  panel_border()
+plots.list = lappend(plots.list, p)
+
+
+# saturation vs adj r2
+# 
+# brenda.summary = metabolites.long %>% group_by(dataset, X2, isPredictor) %>% summarise(median.ratio = median(log(ratio)))
+# 
+# models.summary = all_final_models.models %>% ungroup() %>% filter(dataset != "PPP_AA", the_super_best == T) %>% 
+#                   group_by(dataset, metabolite, the_super_best) %>% 
+#                   summarise(formula = unique(formula),
+#                             median.cv.r2 = unique(median.cv.r2),
+#                             adj.r.squared = unique(adj.r.squared),
+#                             r.squared = unique(r.squared),
+#                             model = unique(as.character(model)),
+#                             type = unique(as.character(type)),
+#                             datafile = unique(as.character(datafile)))
+# 
+# tmp = merge(brenda.summary, models.summary, by.x = c("dataset", "X2"), 
+#                                             by.y = c("dataset", "metabolite" ))
+# 
+# tmp$isSaturated = ifelse(tmp$median.ratio > 0, 1, 0)
+# 
+# p = ggplot(tmp , aes(x = median.ratio, y = adj.r.squared, colour=isPredictor)) +
+#             geom_point()
+# 
+# tmp %>% group_by(dataset, isPredictor) %>% summarise(cor(median.ratio,adj.r.squared, use="pairwise.complete" ))
+# 
+# pheatmap(cor(dataAA$metabolites, method="spearman"))
+# cor.test(dataAA$metabolites[,"glutamate"],dataAA$metabolites[,"glutamine"], method="spearman")
 
 file_name = paste(fun_name, "report.pdf", sep=".")
 file_path = paste(figures_dir, file_name, sep="/")
 save_plots(plots.list, filename=file_path, type="l")
+
+
+
+
+
+
+
+
+
 
 
 
