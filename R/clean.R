@@ -276,13 +276,14 @@ createMetabolitesTCA = function() {
   
   load("./R/objects/metabolitesTCA.raw._load_.RData")
   load("./R/objects/dates_map._load_.RData")
+  metabolitesTCA.raw$Name = trimWhiteSpace(metabolitesTCA.raw$Name)
   
   
   pattern.p = "Sample_(.*?)_(\\w+)(.*)"
   
   matches.tmp = stringr::str_match_all(string=metabolitesTCA.raw$Name, pattern=pattern.p)
   pheno = data.frame(matrix(unlist(matches.tmp), byrow=T, ncol=length(matches.tmp[[1]])))
-  
+    
   names(pheno) =  c("sample_name", "sample", "replicate", "measure_date")
   pheno$measure_date = trimWhiteSpace(pheno$measure_date)
   pheno$measure_date = gsub(pattern="[\\(\\)]+", replacement="", perl=T, x=pheno$measure_date)
@@ -295,7 +296,8 @@ createMetabolitesTCA = function() {
   pheno$ORF = as.character(dates_map$ORF[match(pheno$sample, dates_map$Nr)])
   pheno$ORF[grep(pattern="WT",ignore.case=T, x=pheno$sample_name)] = "WT"
   
-  metabolitesTCA.data = cbind(pheno$sample_id, metabolitesTCA.raw[,-c(1,2)])
+  
+  metabolitesTCA.data = cbind(pheno$sample_id, metabolitesTCA.raw[,-c(1,2)]) #pheno is sorted in the same way as metabolitesTCA.raw
   metabolitesTCA.data[metabolitesTCA.data == 0] = NA
   names(metabolitesTCA.data)[1] = "sample_id"
   
@@ -418,7 +420,82 @@ createKinaseClasses = function() {
   save(kinase_classes,file=file_path)
 }
   
+create.BRENDA = function () {
+  ec.brenda.raw <- read.delim("./results/2015-10-01/ec.brenda.tsv", header=F)
+  ec.brenda.raw = ec.brenda.raw[, -length(ec.brenda.raw)]
+  names_cols = seq(1,16, 2)
+  data_cols  = seq(2,16, 2)
+  col_names = ec.brenda.raw[1,names_cols]
+  data = data.frame(ec.brenda.raw[,data_cols])
+  colnames(data) = as.character(t(col_names))
+  ec.brenda = data
+  file_name = paste("ec.brenda", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(ec.brenda,file=file_path)
+}
 
+create.kinase_transcrtiptome = function() {
+  
+  data.raw <- read.delim("./data/2015-09-27/DataS1.txt", header=F)
+  
+  load("./R/objects/gene.annotations._load_.RData")
+  
+  orf2name = droplevels(unique(gene.annotations[,c("V4", "V6")]))
+  orf2name$V4 = as.character(orf2name$V4)
+  orf2name$V6 = as.character(orf2name$V6)
+  orf2name$V6[orf2name$V6 == ""] = orf2name$V4[orf2name$V6 == ""]
+  names(orf2name) = c("ORF", "gene_name")
+  
+  
+  colNames = gsub(pattern="-del", replacement="", t(data.raw[1,]))
+  colNames = gsub(pattern=" |vs.|wt", replacement="", colNames)
+  colNames = gsub(pattern="[+-]", replacement="_", colNames)
+  
+  colnames(data.raw) = toupper(colNames)
+  
+  select_pvalues = grep(x=as.character(t(data.raw[2,])), pattern="p_value", perl=T)
+  select_folds = which(as.character(t(data.raw[2,])) == "M")
+  
+  folds.matrix = data.raw[-c(1,2),c(1,select_folds)] 
+  pvalue.matrix = data.raw[-c(1,2),c(1,select_pvalues)] 
+  
+  as.numeric.factor <- function(x) {as.numeric(levels(x))[x]}
+  
+  data = data.raw
+  folds.matrix[, -1] <- sapply(folds.matrix[, -1], as.numeric.factor)
+  pvalue.matrix[, -1] <- sapply(pvalue.matrix[, -1], as.numeric.factor)
+  
+  folds.long  = melt(folds.matrix, id.vars="SYSTEMATICNAME")
+  pvalue.long = melt(pvalue.matrix, id.vars="SYSTEMATICNAME")
+  
+  names(folds.long)  = c("ORF", "KO", "logFC")
+  names(pvalue.long) = c("ORF", "KO", "p.value")
+  
+  transcriptome.FC = merge(folds.long, pvalue.long, by = c("ORF", "KO"))
+  
+  transcriptome.FC$KO.ORF = orf2name$ORF[match(transcriptome.FC$KO, orf2name$gene_name)]
+  transcriptome.FC$KO.ORF[which(is.na(transcriptome.FC$KO.ORF))] = orf2name$ORF[match(transcriptome.FC$KO[which(is.na(transcriptome.FC$KO.ORF))], orf2name$ORF)]
+  transcriptome.FC = droplevels(transcriptome.FC[grep(pattern="_", x=transcriptome.FC$KO, invert=T),])
+  transcriptome.FC$KO.ORF[transcriptome.FC$KO == "ABC1"] = "YGL119W"
+  transcriptome.FC$KO.ORF[transcriptome.FC$KO == "CDK8"] = "YPL042C"
+  transcriptome.FC$KO.ORF[transcriptome.FC$KO == "SHA3"] = "YPL026C"
+  transcriptome.FC = droplevels(transcriptome.FC)
+  transcriptome.FC$KO.ORF = factor(transcriptome.FC$KO.ORF)
+  transcriptome.FC$p.value_BH= p.adjust(transcriptome.FC$p.value, method="BH")
+  
+  file_name = paste("transcriptome.FC", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(transcriptome.FC,file=file_path)
+}
+
+create.sentinel_list = function() {
+  sentinels.table = read.xlsx2("./data/2015-10-20//nmeth.3101-S2.xlsx", 
+                           sheetIndex=1, startRow=2, header=T) # discovery data
+  
+  file_name = paste("sentinels.table", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(sentinels.table,file=file_path)
+}
 
 
 main = function() {
@@ -432,6 +509,9 @@ main = function() {
   createMetabolites2()
   
   createMetabolitesTCA()
+  create.BRENDA()
+  create.kinase_transcrtiptome()
+  create.sentinel_list()
 }
 
 
