@@ -498,6 +498,20 @@ create.sentinel_list = function() {
 }
 
 
+create.sentinelSRM_list = function() {
+  sentinelsSRM = read.xlsx2("./data/2015-10-20/nmeth.3101-S4.xlsx", 
+                            sheetIndex=1, startRow=12, header=T) # discovery data
+  
+  sentinelsSRM$ID.ORF = sub(pattern="^([A-Za-z0-9]+)..*", replacement="\\1", x=sentinelsSRM$ID, perl=T)
+    
+  file_name = paste("sentinelsSRM", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(sentinelsSRM,file=file_path)
+}
+
+
+
+
 main = function() {
   create.peptides()
   create.exp_annotations()
@@ -512,6 +526,7 @@ main = function() {
   create.BRENDA()
   create.kinase_transcrtiptome()
   create.sentinel_list()
+  create.sentinelSRM_list()
 }
 
 
