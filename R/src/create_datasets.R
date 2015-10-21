@@ -33,6 +33,8 @@ orf2name = unique(data.frame(ORF = protein_annotations$SystName,
 
 
 
+
+
 getResPred = function(response.matrix, predictors.matrix, i,  B, order=NULL, include.metabolites = F) {
   #B - bipartite graph with type == 1 of metabolites 
   
@@ -297,9 +299,7 @@ clean_data_PPP_AA = function(imputed = F) {
   metabolites.df = dcast(metabolites.data, formula=variable~sample_id)
   metabolites.matrix = as.matrix(metabolites.df[,-1])
   rownames(metabolites.matrix) = metabolites.df$variable
-  
-  
-
+    
   metabolites.matrix.t = t(metabolites.matrix)
   set.seed(123)
   metabolites.imputed = amelia(metabolites.matrix.t, logs=colnames(metabolites.matrix.t), m=5)
@@ -316,7 +316,7 @@ clean_data_PPP_AA = function(imputed = F) {
   
    WTs.batch = unique(as.character(metabolite_metadata$batch[grep(pattern="wt", x=metabolite_metadata$ORF, ignore.case=T)]))
    WTs.imputed.subset = metabolites.imputed.long[metabolites.imputed.long$sample_id %in% WTs,]
-   WTs.batch = WTs.batch[WTs.batch != 8]
+   #WTs.batch = WTs.batch[WTs.batch != 8]
 #   
 #   
 #   p1 = ggplot(metabolites.imputed.long, aes(x=batch, y=value)) +
@@ -393,6 +393,8 @@ clean_data_PPP_AA = function(imputed = F) {
               metabolites = exp(metabolites.all.mean.matrix.present),
               proteins.log = proteins.mean.matrix.present,
               proteins.log.quant = normalizeQuantiles(proteins.mean.matrix.present)))
+
+
 }
 
 
@@ -441,12 +443,23 @@ createDataset = function(response.matrix, predictors.matrix, order, include.meta
 }
 
 
+##
+
+output_base = "./results/2015-09-29"
+
 ## -- TCA ----
 dataTCA = clean_data_TCA(imputed=F)
 
-output_dir = "./results/2015-08-03/data.TCA"
+file_name = paste("dataTCA", fun_name, "RData", sep=".")
+file_path = paste(output_dir, file_name, sep="/")
+save(dataTCA,file=file_path)
+
+dataset_dir = "data.TCA"
+output_dir = paste(output_base, dataset_dir, sep = "/")
+
 unlink(output_dir, recursive = T, force = FALSE)
 dir.create(output_dir, recursive=T)
+
 
 createDataset(response.matrix=dataTCA$metabolites, 
               predictors.matrix=dataTCA$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.TCA")
@@ -482,7 +495,9 @@ createDataset(response.matrix=dataTCA$metabolites,
 ## -- TCA imputed ----
 dataTCA.imputed = clean_data_TCA(imputed=T)
 
-output_dir = "./results/2015-08-03/data.TCA.imputed"
+dataset_dir = "data.TCA.imputed"
+output_dir = paste(output_base, dataset_dir, sep = "/")
+
 unlink(output_dir, recursive = T, force = FALSE)
 dir.create(output_dir, recursive=T)
 
@@ -501,7 +516,14 @@ intersect(rownames(dataTCA$metabolites), rownames(dataAA$metabolites))
 ## -- AA ----
 dataAA = clean_data_AA()
 
-output_dir = "./results/2015-08-03/data.AA"
+file_name = paste("dataAA", fun_name, "RData", sep=".")
+file_path = paste(output_dir, file_name, sep="/")
+save(dataAA,file=file_path)
+
+
+dataset_dir = "data.AA"
+output_dir = paste(output_base, dataset_dir, sep = "/")
+
 unlink(output_dir, recursive = T, force = FALSE)
 dir.create(output_dir, recursive=T)
 
@@ -544,7 +566,15 @@ createDataset(response.matrix=dataAA$metabolites,
 ## -- PPP ----
 
 dataPPP_AA = clean_data_PPP_AA(imputed=F)
-output_dir = "./results/2015-08-03/data.PPP_AA"
+
+file_name = paste("dataPPP_AA", fun_name, "RData", sep=".")
+file_path = paste(output_dir, file_name, sep="/")
+save(dataPPP_AA,file=file_path)
+
+
+dataset_dir = "data.PPP_AA"
+output_dir = paste(output_base, dataset_dir, sep = "/")
+
 unlink(output_dir, recursive = T, force = FALSE)
 dir.create(output_dir, recursive=T)
 
@@ -587,7 +617,16 @@ createDataset(response.matrix=dataPPP_AA$metabolites,
 
 ## -- PPP imputed ----
 dataPPP_AA.imputed = clean_data_PPP_AA(imputed=T)
-output_dir = "./results/2015-08-03/data.PPP_AA.imputed"
+file_name = paste("dataPPP_AA.imputed", fun_name, "RData", sep=".")
+file_path = paste(output_dir, file_name, sep="/")
+
+
+
+
+dataset_dir = "data.PPP_AA.imputed"
+output_dir = paste(output_base, dataset_dir, sep = "/")
+
+
 unlink(output_dir, recursive = T, force = FALSE)
 dir.create(output_dir, recursive=T)
 
@@ -605,7 +644,10 @@ createDataset(response.matrix=dataPPP_AA.imputed$metabolites,
 
 
 ## -- TCA & AA ---- 
-output_dir = "./results/2015-08-03/data.TCA_AA"
+
+dataset_dir = "data.TCA_AA.imputed"
+output_dir = paste(output_base, dataset_dir, sep = "/")
+
 common = intersect(rownames(dataAA$proteins), rownames(dataTCA$proteins))
 unlink(output_dir, recursive = T, force = FALSE)
 dir.create(output_dir, recursive=T)
