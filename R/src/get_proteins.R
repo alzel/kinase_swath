@@ -7,6 +7,8 @@ fun_name = "get_proteins"
 
 load("./R/objects/exp_metadata._clean_.RData")
 load("./R/objects/peptides.matrix.combat.RData")
+load("./R/objects/peptides.matrix.RData")
+
 load("./R/objects/peptides.matrix.combat.quant.RData")
 load("./R/objects/peptides.cor.stats.top.RData")
 load("./R/objects/protein_annotations._load_.RData")
@@ -122,6 +124,7 @@ makeProteins = function(...) {
 
 
 #peptides.long = tbl_df(melt(peptides.matrix.combat, id.vars="rownames"))
+makeProteins(peptides.matrix)
 makeProteins(peptides.matrix.combat)
 makeProteins(peptides.matrix.combat.quant)
 

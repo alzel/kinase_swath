@@ -59,12 +59,16 @@ fragments.data$topquant = NULL
 fragments.data$quanty_all = NULL
 
 
-
 fragments.data = fragments.data %>% group_by(FG.Id) %>%  mutate(qvalue.median = median(unique(EG.Qvalue)))
+
+file_name = "fragments.data.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(fragments.data, file=file_path) 
 
 p = ggplot(fragments.data, aes(x = log(qvalue.median))) + 
   geom_density() +
   geom_vline(xintercept = log(0.01))
+
 plots.list = lappend(plots.list, p)
 
 ## ---- selecting peptides based on spectronaut Q-value
@@ -226,6 +230,9 @@ if (thr_remove > 0) {
 file_name = "peptides.peak_sums.trimmed.RData"
 file_path = paste(output_dir, file_name, sep="/")
 save(peptides.peak_sums.trimmed, file=file_path) 
+
+
+
 
 
 
