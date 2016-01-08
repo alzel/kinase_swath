@@ -251,6 +251,10 @@ peptides.matrix.combat = ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=m
 peptides.matrix.combat.quant = normalizeQuantiles(ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=mod, par.prior=T))
 
 
+file_name = "peptides.matrix.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(peptides.matrix,file=file_path) 
+
 file_name = "peptides.matrix.combat.RData"
 file_path = paste(output_dir, file_name, sep="/")
 save(peptides.matrix.combat,file=file_path) 
