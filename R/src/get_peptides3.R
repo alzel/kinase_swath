@@ -71,7 +71,6 @@ fragments.data.f = filter(fragments.data, qvalue.median <= 0.01, F.IsQuantified 
 exp_metadata$aquisition_date.str = as.POSIXct(strftime(exp_metadata$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
 exp_metadata$batch_kmeans = kmeans(exp_metadata$aquisition_date.str, 7)$cl
 
-
 fragments.df = dcast(fragments.data.f, formula=FG.Id+fragment~R.Label, value.var="F.PeakArea")
 
 fragments.matrix = as.matrix(fragments.df[,-c(1,2)])
@@ -127,7 +126,7 @@ text(pca$x[,1], pca$x[,2], labels=as.numeric(pheno$batch.exp), cex=0.5)
 p = recordPlot()
 plots.list = lappend(plots.list, p)
 dev.off()
-
+p
 
 plots.list = lappend(plots.list, p)
 
@@ -137,4 +136,30 @@ save_plots(plots.list, filename=file_path, type="l")
 
 
 
+peptides.peak_sums <- group_by(fragments.data, R.Label,sample, replicate, EG.StrippedSequence) %>%
+  dplyr::summarise(count = n(),
+                   signal = FG.TotalPeakArea[1],
+                   EG.Qvalue = EG.Qvalue[1])
 
+peptides.peak_stats = group_by(peptides.peak_sums, sample, EG.StrippedSequence) %>%
+  dplyr::summarise(count = n(),
+                   mean.signal = mean(signal),
+                   CV = sd(signal)/mean.signal)
+              #     mean.T = mean(log(signal,2)),
+              #     CV.T = sqrt(exp(sd(signal^2)-1)))
+              
+
+
+to_plot = filter(peptides.peak_stats, count>=2)
+p = ggplot(to_plot, aes(x=as.numeric(EG.StrippedSequence), y=CV)) + 
+  geom_point(alpha=0.1) +
+  ggtitle(paste("Grouped by", paste(attr(to_plot, which="vars"), collapse="."))) + 
+  stat_smooth()
+
+ggplot(to_plot, aes(x=CV)) + 
+      geom_density() 
+median(to_plot$CV)
+
+ggplot(to_plot, aes(x=CV.T)) + 
+       geom_density() 
+median(to_plot$CV)

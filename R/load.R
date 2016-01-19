@@ -317,10 +317,11 @@ load_model = function() {
 }
 
 load_iMM904 = function(){
+  
   iMM904 <- read.delim("./results/2015-06-16/iMM904_long.tsv")
-  iMM904 = iMM904_long %>% arrange(metabolite)
-  iMM904$directionality = sub(pattern="-->", replacement="->", x=iMM904_long$directionality)
-  iMM904$directionality = sub(pattern="<==>", replacement="<->", x=iMM904_long$directionality)
+  iMM904 = iMM904 %>% arrange(metabolite)
+  iMM904$directionality = sub(pattern="-->", replacement="->", x=iMM904$directionality)
+  iMM904$directionality = sub(pattern="<==>", replacement="<->", x=iMM904$directionality)
   
   file_name = paste("iMM904", suffix, "RData", sep=".")
   file_path = paste(output_dir, file_name, sep="/")
@@ -398,10 +399,13 @@ loadTF = function() {
 
 load_KEGG_htext = function() {
   kegg_categories <- read.delim("./results/2015-06-09/kegg4R.tsv", header=T)
+  kegg_categories = unique(kegg_categories)
   file_name = paste("kegg_categories", suffix, "RData", sep=".")
   file_path = paste(output_dir, file_name, sep="/")
   save(kegg_categories, file=file_path)  
 }
+
+
 
 load_iMaranas_GTrass = function() {
   raw = read.delim("./results/2015-06-09/s_cerevisiae/GTRass_processed.tsv", header=F)

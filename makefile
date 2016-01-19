@@ -22,10 +22,10 @@ analysis1: ./output/get_peptides2.Rout ./output/peptides_correlations.Rout ./out
 
 #getting correlations among peptides within protein
 ./output/peptides_correlations.Rout: ./R/src/peptides_correlations.R ./R/objects/peptides.peak_sums.trimmed.RData ./R/objects/protein_annotations._load_.RData
-	 38   R CMD BATCH --no-save --no-restore ./R/src/peptides_correlations.R ./output/peptides_correlations.Rout
+	 R CMD BATCH --no-save --no-restore ./R/src/peptides_correlations.R ./output/peptides_correlations.Rout
 
 #calculating protein fold-changes
-./output/get_proteins.Rout: ./R/src/get_proteins.R ./R/objects/exp_metadata._clean_.RData ./R/objects/peptides.matrix.combat.RData ./R/objects/peptides.cor.stats.top.RData ./R/objects/protein_annotations._load_.RData
+./output/get_proteins.Rout: ./R/src/get_proteins.R ./R/objects/exp_metadata._clean_.RData ./R/objects/peptides.matrix.RData ./R/objects/peptides.matrix.combat.RData ./R/objects/peptides.cor.stats.top.RData ./R/objects/protein_annotations._load_.RData
 	R CMD BATCH --no-save --no-restore ./R/src/get_proteins.R ./output/get_proteins.Rout
 
 ./R/objects/proteins.matrix.combat.quant.FC.RData: ./output/get_proteins.Rout

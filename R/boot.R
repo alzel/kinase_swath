@@ -1,4 +1,4 @@
-library("org.Sc.sgd.db")
+#library("org.Sc.sgd.db")
 library("ggplot2")
 library("reshape")
 library("reshape2")
@@ -17,11 +17,11 @@ library("plyr"); library("dplyr")
 library("grid")
 library("gridExtra")
 library("sva")
-library("xlsx")
+#library("xlsx")
 library("tidyr")
 
 library("RColorBrewer")
-library("ConsensusClusterPlus")
+#library("ConsensusClusterPlus")
 
 
 output_dir = "./R/objects"

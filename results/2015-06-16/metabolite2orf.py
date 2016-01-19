@@ -7,7 +7,7 @@ output_file = "./iMM904_long.tsv"
 f = open(file, 'r')
 
 f_out = open(output_file, 'w')
-f_out.write('metabolite\treaction\tgene\tside\tdirectionality\n')
+f_out.write('metabolite\treaction\tec_number\tgene\tside\tdirectionality\n')
 
 reader = csv.reader(f)
 
@@ -17,6 +17,7 @@ for line in reader:
     #parsing reactions
     m = re.search("(-->|<==>)", line[2])
     genes = line[6]
+    ec_number = line[4]
 
     genes = re.sub("[orand\s\(\)]+", " ", genes).strip()
     genes = list(set(genes.split()))
@@ -57,9 +58,9 @@ for line in reader:
 
         for orf in genes:
             for s in substrates:
-                f_out.write("{0}\t{1}\t{2}\t{3}\t{4}\n".format(s, reaction, orf, "substrate", delimiter))
+                f_out.write("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\n".format(s, reaction, ec_number, orf, "substrate", delimiter))
             for p in products:
-                f_out.write("{0}\t{1}\t{2}\t{3}\t{4}\n".format(p, reaction, orf, "product", delimiter))
+                f_out.write("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\n".format(p, reaction, ec_number, orf, "product", delimiter))
 
 
 f_out.close()

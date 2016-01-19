@@ -277,8 +277,8 @@ save_plots = function(plots.list, filename, type="p") {
   height=11.69+0.1*11.69
   
   if (type == "l") {
-    width = 11.69+0.1*11.69
-    height = 8.27+0.1*8.27
+    width = 11.69+0.15*11.69
+    height = 8.27+0.15*8.27
   }
   
   pdf(filename, width=width, height=height)
@@ -684,4 +684,110 @@ cor_heatmap = function (clean.data) {
     theme_grey() +
     theme_change
   return(pheat)
+}
+
+
+repeatedCV = function(fit, repeats = 100) {
+  
+  #cross-valitation of all data
+  theta.fit <- function(x,y){lsfit(x,y)}
+  theta.predict <- function(fit,x){cbind(1,x)%*%fit$coef} 
+  
+  X <- fit$model[,-1]
+  y <- fit$model[,1]
+  
+  CVs = c()
+  for (tmp.i in 1:repeats) {
+    cv.results <- crossval(x=X, y=y, 
+                           theta.fit=theta.fit, 
+                           theta.predict=theta.predict, ngroup=10)
+    cv.r.squared = cor(y,cv.results$cv.fit)**2
+    CVs = c(CVs, cv.r.squared)
+  }
+  
+  CVs = data.frame(CVs)  
+  return(CVs)
+}
+
+getFC_thr = function(proteins.matrix = proteins.matrix.combat, pval_thr = 0.01) {
+  
+  #proteins.matrix = proteins.matrix.combat
+  #pval_thr = 0.05
+  
+  #checking WT samples to define FC
+  
+  exp_metadata$aquisition_date.str = as.POSIXct(strftime(exp_metadata$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
+  cl = pam(exp_metadata$aquisition_date.str, 7)
+  exp_metadata$batch_kmeans = cl$clustering
+  
+  pheno_wt = as.data.frame(exp_metadata[match(colnames(proteins.matrix), exp_metadata$sample_name),])
+  pheno_wt = pheno_wt[pheno_wt$type == "Standard Mix",]
+  pheno_wt = pheno_wt[pheno_wt$batch_kmeans %in% names(table(pheno_wt$batch_kmeans))[table(pheno_wt$batch_kmeans)  >= 3],]
+  
+  #plot(exp_metadata$aquisition_date, exp_metadata$batch_kmeans)
+  
+  #points(pheno_wt$aquisition_date, pheno_wt$batch_kmeans, col="red")
+  
+  proteins.matrix.WT = proteins.matrix[,match(pheno_wt$sample_name, colnames(proteins.matrix))]
+  
+  #   s = prcomp(t(proteins.matrix.WT))
+  #   plot(s$x[,c(1,2)], col=pheno_wt$batch_kmeans)
+  
+  pheno_wt$factor = factor(paste(pheno_wt$ORF, pheno_wt$batch_kmeans, sep="."))
+  
+  X = model.matrix(~factor + 0, data=pheno_wt)
+  colnames(X) = levels(pheno_wt$factor)
+  
+  tbl.tmp = table(pheno_wt$factor)
+  reference = names(tbl.tmp)[tbl.tmp == max(tbl.tmp)][1]
+  
+  matrix = proteins.matrix.WT
+  
+  lm.fit_model = lmFit(matrix, X)
+  ph = unique(as.character(pheno_wt$factor))
+  contrasts = paste0( ph[ph !=reference] ,"-", reference)  
+  
+  mc = makeContrasts(contrasts=contrasts, levels=X)    
+  c.fit = contrasts.fit(lm.fit_model, mc)
+  eb = eBayes(c.fit)
+  
+  folds = rowFolds(data=exp(matrix), groups=pheno_wt$factor, reference=reference)
+  folds = log(folds, 2)
+  
+  folds_tmp = melt(eb$coefficients, id.vars="row.names")
+  #folds_tmp$contrasts = factor(paste(folds_tmp$contrasts, "-", reference, sep=""))
+  pvals_tmp = melt(eb$p.value, id.vars="row.names")
+  
+  names(folds_tmp) = c("ORF", "contrasts", "logFC")
+  names(pvals_tmp) = c("ORF", "contrasts", "p.value")
+  
+  folds_tmp$contrasts = factor(folds_tmp$contrasts)
+  pvals_tmp$contrasts = factor(pvals_tmp$contrasts)
+  
+  proteins.FC = merge(folds_tmp, pvals_tmp, all=T,
+                      by=c("ORF", "contrasts"))
+  
+  ##multiple testing correction
+  proteins.FC$p.value_BH = p.adjust(proteins.FC$p.value, method="BH")
+  proteins.FC$p.value_bonferroni = p.adjust(proteins.FC$p.value, method="bonferroni")
+  
+  proteins.FC$KO = sub(x = proteins.FC$contrasts, pattern=paste("(.*?)-", reference, sep=""), replacement="\\1")
+  proteins.FC$reference = reference
+  
+  data = abs(proteins.FC$logFC[proteins.FC$p.value_BH < pval_thr])
+  
+  file_name = paste(fun_name, "getFC_thr", "pdf", sep=".")
+  file_path = paste(figures_dir, file_name, sep="/")
+  
+  pdf(file_path, paper="a4")
+  par(pty="s")
+  hist(data, breaks=50, main="Expected fold changes in Standatd Mix")
+  fc_thr = median(data)
+  
+  abline(v=fc_thr, lty=2)
+  legend("topleft", bg=NULL, bty="n", 
+         legend=paste("Median FC=", round(fc_thr,2)))
+  dev.off()
+  
+  return(abs(fc_thr))
 }

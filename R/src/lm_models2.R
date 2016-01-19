@@ -360,14 +360,9 @@ for ( i in c("AA", "PPP_AA", "TCA", "TCA_AA") ) {
 }
 
 
-file_name = paste(fun_name, "report_part1.pdf", sep=".")
-file_path = paste(figures_dir, file_name, sep="/")
-save_plots(plots.list, filename=file_path, type="l")
-
-
 
 # BRENDA vs concentrations
-plots.list = list()
+
 brenda <- read.delim("./data/2015-10-07/brenda.txt")
 load("./R/objects/proteins.matrix.combat.RData")
 
@@ -480,19 +475,44 @@ p = ggplot(toPlot, aes(x=log(ratio))) +
 plots.list = lappend(plots.list, p)
 
 
-# predictors AA vs TCA
+### ratio whether it is predictor of not
+a = (metabolites.long %>% filter(inNetwork == T, isPredictor == F) %>% dplyr::select(ratio))$ratio
+b = (metabolites.long %>% filter(inNetwork == T, isPredictor == T) %>% dplyr::select(ratio))$ratio
 
+toPlot = metabolites.long %>% filter(inNetwork == T)
+stats = data.frame(label_text = c(median(b,na.rm=T)/median(a, na.rm=T),
+                                wilcox.test(b,a)$p.value),
+                   x = 1,
+                   y = c(5,4))
+
+p = ggplot(toPlot, aes(x = isPredictor, y = log(ratio))) + 
+       geom_boxplot(width=0.2)+
+       #geom_violin(alpha=0)+
+       geom_text(data=stats, aes(x=x, y=y, label = label_text)) +
+       panel_border() +
+       theme(aspect.ratio = 8/3)
+       #geom_point(data=toPlot, aes(x=jitter(as.numeric(isPredictor)) + 1 , y = log(ratio)), alpha = 0.1)
+plots.list = lappend(plots.list, p)
+
+
+# predictors AA vs TCA
 toPlot = metabolites.long %>% filter(inNetwork == T, isPredictor == T)
+#toPlot = metabolites.long
 stats = data.frame(label_text = c(log(median(toPlot$ratio[toPlot$dataset == "AA"], na.rm=T)/median(toPlot$ratio[toPlot$dataset == "TCA"], na.rm=T)),
-                             wilcox.test(log(toPlot$ratio[toPlot$dataset == "AA"]), log(toPlot$ratio[toPlot$dataset == "TCA"]))$p.value),
+                             wilcox.test(log(toPlot$ratio[toPlot$dataset == "AA"]), log(toPlot$ratio[toPlot$dataset == "TCA"]))$p.value,
+                             sum(log(toPlot$ratio) > 0, na.rm=T)/length(toPlot$ratio)), #above Km
+                      
                    x = -7,
-                   y = c(0.15, 0.13))
+                   y = c(0.15, 0.13, 0.1))
 
 toPlot$dataset = factor(toPlot$dataset)
-
+  
 p = ggplot() +  
       geom_density(data=toPlot, aes(x=log(ratio), fill=dataset), alpha = 0.5) +
-      geom_text(data=stats, aes(x=x+2, y=y, label = label_text)) 
+      geom_text(data=stats, aes(x=x+2, y=y, label = label_text)) +
+      panel_border() + 
+      theme(aspect.ratio = 0.625)
+
 plots.list = lappend(plots.list, p)
 
 
@@ -739,6 +759,27 @@ plots.list = lappend(plots.list, p)
 # 
 # pheatmap(cor(dataAA$metabolites, method="spearman"))
 # cor.test(dataAA$metabolites[,"glutamate"],dataAA$metabolites[,"glutamine"], method="spearman")
+
+
+### -- degree comparison ----
+unique(all_final_models.models$dataset)
+
+toPlot = all_final_models.models %>% filter(dataset %in%  c("TCA", "AA"), type=="after",  ismetIncluded == 0, the_super_best == T) %>% 
+                                    group_by(dataset, metabolite, degree,  the_super_best) %>% 
+                                    summarise(formula = unique(formula),
+                                              median.cv.r2 = unique(median.cv.r2),
+                                              adj.r.squared = unique(adj.r.squared),
+                                              r.squared = unique(r.squared),
+                                              model = unique(as.character(model)),
+                                              type = unique(as.character(type)),
+                                              datafile = unique(as.character(datafile)))
+p = ggplot(toPlot, aes(x = adj.r.squared, fill = factor(degree))) + 
+          geom_density(alpha = 0.5) +
+          theme(aspect.ratio = 0.625) +
+          panel_border()
+
+plots.list = lappend(plots.list, p)
+
 
 file_name = paste(fun_name, "report.pdf", sep=".")
 file_path = paste(figures_dir, file_name, sep="/")

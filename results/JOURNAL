@@ -1,0 +1,6 @@
+2015-05-12: reformating Forster model to R for regression analysis
+2015-06-09: performing flux copling analysis to increase coverage
+2015-06-12: reformating iMM904, obtained from http://gcrg.ucsd.edu/InSilicoOrganisms/Yeast
+2015-09-29: making regression linear models using preprocessed data log, quantiles
+2015-10-01: getting out BRENDA to check whether predictors are saturated
+2015-12-05: making SWATH library (on CLuster) based on published protocol Nature Protocols 10, 426–441 (2015) doi:10.1038/nprot.2015.015 

@@ -61,7 +61,7 @@ fragments.data$quanty_all = NULL
 
 fragments.data = fragments.data %>% group_by(FG.Id) %>%  mutate(qvalue.median = median(unique(EG.Qvalue)))
 
-file_name = "fragments.data.RData"
+file_name = paste("fragments.data", fun_name, "RData", sep = ".")
 file_path = paste(output_dir, file_name, sep="/")
 save(fragments.data, file=file_path) 
 
@@ -129,8 +129,9 @@ library(scales)
 p = ggplot(peptides.peak_sums.stats, aes(x=aquisition_date.str, y=median)) + 
        geom_point()+
        geom_point(data=peptides.peak_sums.stats.mix,aes(x=aquisition_date.str, y=median),col="red") + #MIX
-       geom_point(data=peptides.peak_sums.stats.wt,aes(x=aquisition_date.str, y=median),col="blue") + #WT   
-       scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%B-%d"))
+       geom_point(data=peptides.peak_sums.stats.wt,aes(x=aquisition_date.str, y=median),col="blue") + #WT  
+       scale_x_date(breaks = date_breaks("1 week"), minor_breaks = date_breaks("1 day"), labels=date_format("%m-%d"))
+       #scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%B-%d"))
 plots.list = lappend(plots.list, p)
 
 
@@ -145,12 +146,13 @@ toPlot$aquisition_date.str = as.Date(strptime(toPlot$aquisition_date, format="%Y
 
 toPlot.mix = toPlot[grep(x=toPlot$R.Label, pattern="mix", ignore.case=T),]
 toPlot.wt  = toPlot[toPlot$R.Label %in% exp_metadata$sample_name[exp_metadata$ORF == "WT"],]
-
+library(scales)
 p = ggplot(toPlot, aes(x=aquisition_date.str, y=signal, col=batch.exp.n)) + 
           geom_point() +
           geom_point(data=toPlot.mix,aes(x=aquisition_date.str, y=signal),col="red") + #MIX
           geom_point(data=toPlot.wt, aes(x=aquisition_date.str, y=signal),col="blue") + #WT   
-          scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d"))+
+          #scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d"))+
+          scale_x_date(breaks = date_breaks("1 week"), minor_breaks = date_breaks("1 day"), labels=date_format("%m-%d"))+
           facet_wrap(~EG.StrippedSequence, scales="free")
 
 
@@ -185,7 +187,8 @@ p = ggplot(toPlot.merged, aes(x=aquisition_date.str, y=signal, col=value)) +
   geom_point() +
   geom_point(data=toPlot.mix,aes(x=aquisition_date.str, y=jitter(signal,50)),col="red") + #MIX
   geom_point(data=toPlot.wt, aes(x=aquisition_date.str, y=signal),col="blue") + #WT   
-  scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d"))+
+  #scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d"))+
+  scale_x_date(breaks = date_breaks("1 week"), minor_breaks = date_breaks("1 day"), labels=date_format("%m-%d"))+
   facet_wrap(variable~EG.StrippedSequence, scales="free")
 
 plots.list = lappend(plots.list, p)
@@ -235,7 +238,6 @@ save(peptides.peak_sums.trimmed, file=file_path)
 
 
 
-
 ## -- adjusting for batch effects ----
 peptides.df = dcast(peptides.peak_sums.trimmed, formula=EG.StrippedSequence~R.Label, value.var="T_signal")
 peptides.matrix = as.matrix(peptides.df[,-1])
@@ -249,7 +251,7 @@ peptides.matrix.combat = ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=m
 #peptides.matrix.combat.vsn = normalizeVSN(ComBat(exp(peptides.matrix), batch=pheno$batch_kmeans, mod=mod, par.prior=T))
 #peptides.matrix.vsn.combat = ComBat(normalizeVSN(exp(peptides.matrix)), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
 peptides.matrix.combat.quant = normalizeQuantiles(ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=mod, par.prior=T))
-
+peptides.matrix.quant.combat = ComBat(normalizeQuantiles(peptides.matrix), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
 
 file_name = "peptides.matrix.RData"
 file_path = paste(output_dir, file_name, sep="/")
@@ -263,6 +265,26 @@ file_name = "peptides.matrix.combat.quant.RData"
 file_path = paste(output_dir, file_name, sep="/")
 save(peptides.matrix.combat.quant,file=file_path) 
 
+file_name = "peptides.matrix.quant.combat.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(peptides.matrix.quant.combat,file=file_path) 
+
+
+## adjusting fragmetns for batch effects
+fragments.df = dcast(fragments.data.f, formula=FG.Id+fragment~R.Label, value.var="F.PeakArea")
+fragments.matrix = as.matrix(fragments.df[,-c(1,2)])
+rownames(fragments.matrix) = paste(fragments.df$FG.Id, fragments.df$fragment, sep="")
+
+pheno = exp_metadata[match(colnames(fragments.matrix), exp_metadata$sample_name),]
+
+mod = model.matrix(~as.factor(ORF), data=pheno)
+
+fragments.matrix.quant.combat = ComBat(normalizeQuantiles(log(fragments.matrix)), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
+
+file_name = "fragments.matrix.quant.combat.RData"
+file_path = paste(output_dir, file_name, sep="/")
+save(fragments.matrix.quant.combat,file=file_path) 
+
 
 
 # X = model.matrix(~ORF + batch_kmeans, data=pheno)
@@ -273,9 +295,8 @@ save(peptides.matrix.combat.quant,file=file_path)
 # after  = peptides.matrix - Batch
 
 
-before = exp(peptides.matrix)
-after = peptides.matrix.combat.quant
-
+before = peptides.matrix
+after  = peptides.matrix.quant.combat
 
 
 pca = prcomp(t(before), scale.=T)
@@ -314,7 +335,7 @@ p = ggplot(scores, aes(x=PC1, y=PC2)) +
   facet_wrap(~type, scales="fixed") + 
   theme(aspect.ratio = 1, 
         axis.text = element_text(size = rel(1.5)))
-        
+
 file_name = paste(fun_name,"batch_effects", "pdf", sep=".")
 file_path = paste(figures_dir, file_name, sep="/")
 ggsave(filename=file_path, plot=p, height=8.27, width = 2*8.27)
@@ -400,9 +421,9 @@ p = ggplot(toPlot, aes(x=aquisition_date.str, y=exp(signal), col=batch_kmeans)) 
   geom_point(size=3) +
   geom_point(data=toPlot.mix,aes(x=aquisition_date.str, y=exp(signal)),col="red") + #MIX
   geom_point(data=toPlot.wt, aes(x=aquisition_date.str, y=exp(signal)),col="blue") + #WT   
-  scale_x_date(breaks = "1 week", minor_breaks = "1 day", labels=date_format("%m-%d"))+
+  scale_x_date(breaks = date_breaks("1 week"), minor_breaks = date_breaks("1 day"), labels=date_format("%m-%d"))+
   facet_grid(EG.StrippedSequence~category, scales="free")
-p
+
 plots.list = lappend(plots.list, p)
 
 file_name = paste(fun_name, "report.pdf", sep=".")

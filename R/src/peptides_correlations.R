@@ -240,6 +240,7 @@ plots.list = lappend(plots.list, p)
 batch.cor.var = peptides.sel.cor %>% group_by(id,variable) %>% summarize(CV = sd(abs(value), na.rm=T)/mean(abs(value), na.rm=T))
 #hist(batch.cor.var$CV, xlim=c(0,2))
 
+str(peptides.wide)
 
 peptides.cor.stats = ddply(peptides.wide, .(ORF), 
                             .fun = function(z) {
@@ -260,12 +261,10 @@ peptides.cor.stats = ddply(peptides.wide, .(ORF),
                               return(ret)
                             })
 
-
 p = ggplot(melt(peptides.cor.stats, id.vars = c("ORF", "EG.StrippedSequence")), aes(x=value, color=variable)) +
            geom_density() +
            xlab("Expected (average,median,shorth) Spearman's correlation coefficient between peptides") +
            theme(aspect.ratio = 1)
-
 
 plots.list = lappend(plots.list, p)
 

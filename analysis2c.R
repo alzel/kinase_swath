@@ -41,28 +41,76 @@ load("./R/objects/metabolite2iMM904._load_.RData")
 orf2name = unique(data.frame(ORF = protein_annotations$SystName, 
                              gene_name = protein_annotations$sgdName))
 
+getResPred = function(response.matrix, predictors.matrix, i,  B, order=NULL, include.metabolites = F) {
+  #B - bipartite graph with type == 1 of metabolites 
+  
+  stopifnot(!any(is.null(predictors.matrix)| is.null(response.matrix) | !is.bipartite(B)))
+  
+  if(is.null(order)) {
+    order = 1  
+  }
+  
+  current_nodes = as.character(metabolite2iMM904$model_name[metabolite2iMM904$id == i])
+  stopifnot(i %in% colnames(response.matrix))
+  
+  if (length(current_nodes) == 0) {
+    message(paste("No ", i, "found in network"))
+    return(-1)
+  }
+  
+  
+  SUB = induced.subgraph(B, base::unique(unlist(neighborhood(B, order=order, nodes=current_nodes))))  
+  #SUB = induced.subgraph(B, unique(unlist(neighborhood(B, order=2, nodes=current_nodes))))  
+    
+  genes.pred = unique(V(SUB)$name[V(SUB)$type == 0])
+  genes.pred = colnames(predictors.matrix)[colnames(predictors.matrix) %in% genes.pred]
+  
+  if (length(genes.pred) == 0) {
+    return(-1)
+  }
+  additional.present = integer(0)
+  
+  if (order > 1 & include.metabolites) {
+    metabolites.pred = V(SUB)$name[V(SUB)$type == 1]
+    metabolites.pred = metabolites.pred[!(metabolites.pred %in% current_nodes)] #removing response
+    additional.pred = as.vector(metabolite2iMM904$id[metabolite2iMM904$model_name %in% metabolites.pred])
+    additional.present = colnames(response.matrix)[which(colnames(response.matrix) %in% additional.pred)]
+  }
+  
+  if (length(additional.present) == 0) {
+    tmp.df = as.data.frame(cbind(response.matrix[,i], predictors.matrix[,genes.pred]))
+    colnames(tmp.df) = c(i, genes.pred)
+    return(tmp.df)
+  } else {
+    tmp.df = as.data.frame(cbind(response.matrix[,i], response.matrix[,additional.present], predictors.matrix[,genes.pred]))
+    colnames(tmp.df) = c(i,additional.present, genes.pred)
+    return(tmp.df)
+  }
+}
 
-metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, models_dir = NULL, suffix = "scaled", scale.var=T, before=F, after=F) {
-  
-#      before = F
-#      after = F
-#      models_dir="./figures/models/test2"
-#      predictors.matrix=proteinsTCA.present
-#      response.matrix= metabolitesTCA.present
-#      suffix = "scaled"
-#      scale.var = T
-  
+
+metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, models_dir = NULL, 
+                             suffix = "scaled", scale.var=T, before=F, after=F,
+                             order = 1, include.metabolites=F) {
+
+   before = F
+   after = F
+   predictors.matrix=dataPPP_AA$proteins
+   response.matrix= dataPPP_AA$metabolites
+   suffix = "scaled"
+   scale.var = T
+   include.metabolites = F
+   order = 1
+   
   stopifnot(!any(is.null(predictors.matrix)| is.null(response.matrix) | is.null(models_dir) | is.null(fun_name)))
   
   yeast.model = iMM904
-  
-  
-  yeast.model.merged = droplevels(merge(yeast.model, metabolite2iMM904, by.x="metabolite", by.y="model_name"))
-  
-  yeast.model.merged = yeast.model.merged[yeast.model.merged$gene %in% colnames(predictors.matrix),]
-  yeast.model.merged$gene_name = orf2name$gene_name[match(yeast.model.merged$gene, orf2name$ORF)]
-  
-  response.matrix = response.matrix[,colnames(response.matrix) %in% yeast.model.merged$id]
+  yeast.model = yeast.model[grep("t", yeast.model$reaction, invert=T),] #removing all tranporters
+  edgelist = unique(droplevels(na.omit(subset(yeast.model, metabolite != "h"  & metabolite !="h2o" , select = c("metabolite", "gene")))))
+    
+  B <- graph.data.frame(edgelist)
+  V(B)$type <- V(B)$name %in% edgelist$metabolite
+  stopifnot(is.bipartite(B))
   
   models.list = list()
   fit.list = list()
@@ -71,46 +119,45 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
   for(ji in 1:length(colnames(response.matrix))) {
     
     i <<- colnames(response.matrix)[ji]
-    #i = "F6P"
-    tmp.i = droplevels(subset(yeast.model.merged, id == i))
-    tmp.df = as.data.frame(cbind(response.matrix[,i], predictors.matrix[,colnames(predictors.matrix) %in% tmp.i$gene]))
+    i = "ATP"
+    #tmp.i = droplevels(subset(yeast.model.merged, id == i))
+    #tmp.df = as.data.frame(cbind(response.matrix[,i], predictors.matrix[,colnames(predictors.matrix) %in% tmp.i$gene]))
     
-    if (ncol(tmp.df) == 2) {
+    tmp.df = getResPred(response.matrix=response.matrix, 
+                        predictors.matrix=predictors.matrix, 
+                        B=B, i=i, order=order, include.metabolites=include.metabolites)
+    
+    if (length(tmp.df) == 1 && tmp.df  == -1) {
       next
-      colnames(tmp.df)[2] = as.character(tmp.i$gene)
-      colnames(tmp.df)[1] = i
     }
     
-    matched.network = droplevels(tmp.i[match(colnames(tmp.df[,-1]), tmp.i$gene),])
-    
-    cols_orfs = colnames(tmp.df)
-    idx_na = which(is.na(orf2name$gene_name[match(colnames(tmp.df), orf2name$ORF)]))
-    colnames(tmp.df) = orf2name$gene_name[match(colnames(tmp.df), orf2name$ORF)]
-    colnames(tmp.df)[idx_na] = cols_orfs[idx_na]
-    colnames(tmp.df)[1] = i
+    if (ncol(tmp.df) == 2 ) {
+      next
+    }
     
     tmp.df.scaled = na.omit(as.data.frame(scale(tmp.df, center=T, scale=T)))
-    
+        
     if (scale.var == F) {
       tmp.df.scaled = na.omit(as.data.frame(scale(tmp.df, center=F, scale=F)))
       suffix = "unscaled"
     }
         
     #PCA if metabolite has more connections than samples
-    if ( sum(!is.na(tmp.df.scaled[,1])) < (ncol(tmp.df.scaled) - 1) ) {
+    if ( sum(!is.na(tmp.df.scaled[,1])) - ceiling(sum(!is.na(tmp.df.scaled[,1]))/10) < (ncol(tmp.df.scaled) - 1) ) {
       tmp.df.scaled = as.data.frame(scale(tmp.df, center=T, scale=T))
       s = prcomp(tmp.df.scaled[,-1])
       tmp.s = summary(s)
-      include_components = sum(tmp.s$importance[3,] < 0.99)
+      include_components = sum(tmp.s$importance[3,] < 0.95)
       tmp.df.scaled = as.data.frame(cbind(tmp.df.scaled[,1],s$x[,1:include_components]))
+      
       colnames(tmp.df.scaled)[1] = i
     }
     
     sample_size = round(nrow(tmp.df.scaled)*0.9)
-    
     total_samples = nrow(tmp.df.scaled)
+    
     k = 100
-    sample.matrix = matrix(rep(0,k*sample_size), nrow=k)
+    sample.matrix = matrix(rep(0, k*sample_size), nrow=k)
     
     set.seed(123)
     for (ik in 1:k) {
@@ -122,12 +169,20 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
     
     #choosing best model using exhaustive approach
     
-    if (ncol(tmp.df.scaled)-1 < 30) {
+    if (ncol(tmp.df.scaled)-1 < 40) {
       for(j in 1:nrow(sample.matrix)) {
         
         sample.data = tmp.df.scaled[sample.matrix[j,],]
-        b = regsubsets(formula(paste0(i," ~ ", ".")), data=sample.data, nbest=1, nvmax=(ncol(sample.data)-1))
+        
+        NVMAX = ncol(tmp.df.scaled) - 1
+        if ( NVMAX >= ceiling(nrow(tmp.df.scaled)/2) ) {
+          #NVMAX = round(nrow(sample.data)/10)*9 - 1 #to ensure 10-fold cross validation validity
+          NVMAX = ceiling(nrow(tmp.df.scaled)/2)
+        }
+        
+        b <- regsubsets(formula(paste0(i," ~ ", ".")), data=sample.data, nbest=1, nvmax=NVMAX)
         rs = summary(b)
+        
         n_points = nrow(na.omit(sample.data))
         k_params = apply(rs$which, 1, sum)
         tmp.best = data.frame(n_params = apply(rs$which, 1, sum),
@@ -158,11 +213,8 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
         
         full.lm <- do.call("lm", list(paste0(i," ~ ", "."),
                                              data = sample.data))
-        
-        
-        
+                
         result = step(null.lm, scope=list(lower=null.lm, upper=full.lm), direction="both", steps=100000)
-        
         tmp_vars = paste(sort(names(result$coefficients)[-1]), collapse=" + ")
         
         if ( tmp_vars == "" ) {
@@ -172,7 +224,7 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
         formulas = c(formulas, F1)
       }
     }
-    
+        
     sumarries.df = data.frame()
     fits.list = list()
     best.models = na.omit(names(sort(-table(formulas))[1:5]))
@@ -193,7 +245,7 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
                          values = fit.s$coefficients[,1],
                          r.squared = fit.s$r.squared,
                          adj.r.squared = fit.s$adj.r.squared,                 
-                         p.value = ifelse(is.null(fit.s$fstatistic[1]),NA, (1 - pf(fit.s$fstatistic[1],fit.s$fstatistic[2],fit.s$fstatistic[3]))),
+                         p.value = ifelse(is.null(fit.s$fstatistic[1]), NA, (1 - pf(fit.s$fstatistic[1],fit.s$fstatistic[2],fit.s$fstatistic[3]))),
                          aic = AIC(fit))
         
         sumarries.df = rbind(sumarries.df, tmp)  
@@ -213,22 +265,27 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
              mean.r.squared = mean(r.squared, na.rm=T),
              median.r.squared = median(r.squared, na.rm=T),
              median.aic = median(aic, na.rm=T)) %>% ungroup() %>% 
-      arrange(median.aic)
-      #arrange(desc(median.adj.r.squared))
+      #arrange(median.aic)
+      arrange(desc(median.adj.r.squared))
     
     all.data = na.omit(tmp.df.scaled)
     F1.best = as.formula(best.models[sumarries.df.stats$model[1]])
     fit = lm(formula=F1.best, data=all.data)
    
-       
+    
     outliers = outlierTest(fit)
-    #cooks_thr = 4/(nrow(na.omit(tmp.df.scaled)) - length(fit$coefficients)-2)
-    cooks_thr = 4/nrow(na.omit(tmp.df.scaled))
+    cooks_thr = 4/(nrow(na.omit(tmp.df.scaled)) - length(fit$coefficients)-2)
     
-    all.data = droplevels(all.data[!(rownames(all.data) %in% names(outliers$bonf.p < 0.05)),])
+    clean.data = droplevels(all.data[!(rownames(all.data) %in% names(outliers$bonf.p < 0.05)),])
+    #cooks_thr = 4/nrow(na.omit(tmp.df.scaled))
+    
+    if ( (nrow(all.data) - sum(cooks.distance(fit) > cooks_thr) - ceiling(nrow(all.data)/10)) < length(fit$coefficients)) {
+      cooks_thr  = sort(cooks.distance(fit), decreasing=T)[3]
+    }
+    
     #all.data = droplevels(all.data[!(rownames(all.data) %in% names(which(cooks.distance(fit) == max(cooks.distance(fit))))),])
-    clean.data = droplevels(all.data[!(rownames(all.data) %in% names(which((cooks.distance(fit) > cooks_thr) == TRUE))),])
-    
+    clean.data = droplevels(clean.data[!(rownames(clean.data) %in% names(which((cooks.distance(fit) > cooks_thr) == TRUE))),])
+        
     beta.changes = data.frame(((fit$coefficients + lm.influence(fit)$coef) - fit$coefficients )/fit$coefficients)
     beta.changes$sample = rownames(beta.changes)
     beta.changes.long = melt(beta.changes[,-1], id.vars="sample")
@@ -236,7 +293,7 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
     n_thr = ceiling(length(unique(beta.changes.long$variable))/3)
     beta.changes.long$sample[abs(beta.changes.long$value) > 1]
     fit.after = lm(formula=F1.best, data=clean.data)
-          
+    
     #cross-valitation of all data
     theta.fit <- function(x,y){lsfit(x,y)}
     theta.predict <- function(fit,x){cbind(1,x)%*%fit$coef} 
@@ -245,6 +302,7 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
     X <- as.matrix(all.data[,names(fit$coefficients)[-1]])
     # vector of predicted values
     y <- all.data[,1]
+    
     cv.results <- crossval(x=X,y=y,theta.fit=theta.fit,theta.predict=theta.predict, ngroup=10)
     cv.r.squared.all = cor(y,cv.results$cv.fit)**2
     
@@ -291,9 +349,9 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
     }
     
     
-    
     p1 = ggplot(sumarries.df.stats, aes(x=factor(model),y=adj.r.squared)) + 
                 geom_boxplot()
+    
     p2 = ggplot(sumarries.df, aes(x=coeficients,y=values, fill=factor(model))) +
       geom_boxplot() +
       geom_hline(yintercept = 0) + theme(axis.text.x = element_text(angle = 90, hjust = 1))
@@ -341,12 +399,15 @@ metabolite_models = function(predictors.matrix = NULL, response.matrix = NULL, m
     p9 = ggplot(data=CVs, aes(x=CVs)) + geom_density()
     
     g = arrangeGrob(p1,p2,p3,p4,p9,pheat, main=textGrob(i))
-        
+       
     file_name = paste(fun_name,i, suffix, "summary.pdf", sep=".")
     file_path = paste(models_dir, file_name, sep="/")
     ggsave(filename=file_path, width=11.69 + 0.2*(11.69), height=8.27 + 0.2*(8.27), plot=g)
-    
-  }  
+    break
+  } 
+  res$metabolite = factor(res$metabolite, 
+                          levels = unique((res %>% arrange(median.r.squared))$metabolite))
+
   return(res)
 }
 
@@ -360,7 +421,26 @@ make_models = function(proteins, metabolites, models_dir) {
   return(res)
 }
 
-
+plotReport = function(toPlot, fun_name, models_dir) {
+  clean = toPlot %>% group_by(metabolite) %>% summarize(clean.r.sq = clean.r.sq[1],
+                                                            cv.r.squared.all = cv.r.squared.all[1],
+                                                            cv.r.squared.after = cv.r.squared.after[1],
+                                                            median.cvs = median.cvs[1])
+  
+  p = ggplot(toPlot, aes(x = metabolite, y = r.squared)) + 
+    geom_boxplot() + 
+    geom_point(data=clean, aes(x = metabolite, y = clean.r.sq), col="red") + #R2 with cleaned data
+    geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.all), shape=20, col="blue") + #single CV R2 with all data
+    geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.after), shape=19, col="green") + #single CV R2 with cleaned data
+    geom_point(data=clean, aes(x = metabolite, y = median.cvs), shape=19, col="pink") + #median of cross validataion
+    coord_flip()
+  
+  
+  file_name = paste(fun_name, "report.pdf", sep=".")
+  file_path = paste(models_dir, file_name, sep="/")
+  ggsave(p, filename=file_path, height=8.27+0.1*8.27, width = 11.69+0.1*11.69) 
+  
+}
 
 
 ##-- models ----
@@ -369,12 +449,10 @@ make_models = function(proteins, metabolites, models_dir) {
 clean_data_TCA = function(models_dir = models_dir) {
   
   stopifnot(!is.null(models_dir))
-  
+  plots.list = list()
   load("./R/objects/metabolitesTCA_metadata._clean_.RData")
   load("./R/objects/metabolitesTCA.data._clean_.RData")
 
-  
-    
   ## -- TCA metabolites batch effects ----
   metabolitesTCA.data$date = metabolitesTCA_metadata$measure_date[match(metabolitesTCA.data$sample_id, metabolitesTCA_metadata$sample_id)]
   metabolitesTCA.data$batch = metabolitesTCA_metadata$measure_batch[match(metabolitesTCA.data$sample_id, metabolitesTCA_metadata$sample_id)]
@@ -430,7 +508,9 @@ clean_data_TCA = function(models_dir = models_dir) {
   metabolitesTCA.long = merge(metabolitesTCA.matrix.combat.long, metabolitesTCA.data, by=c("sample_id", "variable", "batch"), suffixes=c(".combat", ".raw"))
   metabolitesTCA.long$value.combat[is.na(metabolitesTCA.long$value.raw)] = NA
   
-  proteins.matrix = proteins.matrix.combat
+  proteins.matrix = proteins.matrix.combat.quant
+    
+  #normalizeQuantiles(proteins.matrix.combat)
   
   proteins.long = melt(proteins.matrix, id.vars="rownames")
   names(proteins.long) = c("ORF", "R.Label", "signal")
@@ -473,33 +553,56 @@ clean_data_TCA = function(models_dir = models_dir) {
               metabolites = metabolitesTCA.present))
 }
 
+
+## -- selected TCA -- ####
+## -- 1 degree selected TCA -- ####
+
 models_dir = "./figures/models/selected_kinases_TCA"
+dataTCA = clean_data_TCA(models_dir = models_dir)
+
 unlink(models_dir, recursive = T, force = FALSE)
 dir.create(models_dir)
 
+#resultsTCA = make_models(proteins=dataTCA$proteins, dataTCA$metabolites, models_dir=models_dir)
+resultsTCA = metabolite_models(predictors.matrix=dataTCA$proteins, 
+                               response.matrix=dataTCA$metabolites, 
+                               before = F, after = T, models_dir = models_dir, scale.var=T, order=1, include.metabolites=F)
+
+plotReport(toPlot=resultsTCA, fun_name=fun_name, models_dir=models_dir)
+
+
+## -- selected TCA quantiles -- ####
+## -- 1 degree selected TCA quantiles -- ####
+
+models_dir = "./figures/models/selected_kinases_TCA_quantiles"
 dataTCA = clean_data_TCA(models_dir = models_dir)
-resultsTCA = make_models(proteins=dataTCA$proteins, dataTCA$metabolites, models_dir=models_dir)
 
-toPlot = resultsTCA
-clean = resultsTCA %>% group_by(metabolite) %>% summarize(clean.r.sq = clean.r.sq[1],
-                                                   cv.r.squared.all = cv.r.squared.all[1],
-                                                   cv.r.squared.after = cv.r.squared.after[1],
-                                                   median.cvs = median.cvs[1])
+unlink(models_dir, recursive = T, force = FALSE)
+dir.create(models_dir)
 
-p = ggplot(toPlot, aes(x = metabolite, y = r.squared)) + 
-    geom_boxplot() + 
-    geom_point(data=clean, aes(x = metabolite, y = clean.r.sq), col="red") + #R2 with cleaned data
-    geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.all), shape=20, col="blue") + #single CV R2 with all data
-    geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.after), shape=19, col="green") + #single CV R2 with cleaned data
-    geom_point(data=clean, aes(x = metabolite, y = median.cvs), shape=19, col="pink") + #median of cross validataion
-    coord_flip()
+#resultsTCA = make_models(proteins=dataTCA$proteins, dataTCA$metabolites, models_dir=models_dir)
+resultsTCA = metabolite_models(predictors.matrix=dataTCA$proteins, 
+                               response.matrix=dataTCA$metabolites, 
+                               before = F, after = T, models_dir = models_dir, scale.var=T, order=1, include.metabolites=F)
 
-file_name = paste(fun_name, "report.pdf", sep=".")
-file_path = paste(models_dir, file_name, sep="/")
-ggsave(p, filename=file_path, height=8.27+0.1*8.27, width = 11.69+0.1*11.69) 
+plotReport(toPlot=resultsTCA, fun_name=fun_name, models_dir=models_dir)
 
 
-## -- selected AA ----
+
+
+## -- 2 degree selected TCA with metabolites -- ####
+models_dir = "./figures/models/selected_kinases_TCA.met"
+unlink(models_dir, recursive = T, force = FALSE)
+dir.create(models_dir)
+
+resultsTCA.met = metabolite_models(predictors.matrix=dataTCA$proteins, 
+                                   response.matrix=dataTCA$metabolites, 
+                                   before = F, after = T, models_dir = models_dir, scale.var=T, order=2, include.metabolites=T)
+
+plotReport(toPlot=resultsTCA.met, fun_name=fun_name, models_dir=models_dir)
+
+
+
 
 clean_data_AA = function(models_dir=NULL) {
   
@@ -588,6 +691,7 @@ clean_data_AA = function(models_dir=NULL) {
   proteinsAA.present = proteins.matrix.combat.t.f[match(both.present, rownames(proteins.matrix.combat.t.f)),]
   metabolitesAA.present = aa.data.combat.final.matrix[match(both.present, rownames(aa.data.combat.final.matrix)),]  
   
+  metabolitesAA.present = metabolitesAA.present[,-which(colnames(metabolitesAA.present) == "isoleucine")]
     
   file_name = paste(fun_name, "clean.pdf", sep=".")
   file_path = paste(models_dir, file_name, sep="/")
@@ -597,31 +701,37 @@ clean_data_AA = function(models_dir=NULL) {
               metabolites = metabolitesAA.present))
     
 }
+## -- selected AA ----
 
+
+
+dataAA = clean_data_AA(models_dir = models_dir)
+
+
+## -- 1 degree selected AA -- ####
 models_dir = "./figures/models/selected_kinases_AA"
 unlink(models_dir, recursive = T, force = FALSE)
 dir.create(models_dir)
 
-dataAA = clean_data_AA(models_dir = models_dir)
-resultsAA = make_models(proteins=dataAA$proteins, dataAA$metabolites, models_dir=models_dir)
+resultsAA = metabolite_models(predictors.matrix=dataAA$proteins, 
+                               response.matrix=dataAA$metabolites, 
+                               before = F, after = T, models_dir = models_dir, scale.var=T, order=1, include.metabolites=F)
 
-toPlot = resultsAA
-clean = resultsAA %>% group_by(metabolite) %>% summarize(clean.r.sq = clean.r.sq[1],
-                                                          cv.r.squared.all = cv.r.squared.all[1],
-                                                          cv.r.squared.after = cv.r.squared.after[1],
-                                                          median.cvs = median.cvs[1])
+plotReport(toPlot=resultsAA, fun_name=fun_name, models_dir=models_dir)
 
-p = ggplot(toPlot, aes(x = metabolite, y = r.squared)) + 
-  geom_boxplot() + 
-  geom_point(data=clean, aes(x = metabolite, y = clean.r.sq), col="red") + #R2 with cleaned data
-  geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.all), shape=20, col="blue") + #single CV R2 with all data
-  geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.after), shape=19, col="green") + #single CV R2 with cleaned data
-  geom_point(data=clean, aes(x = metabolite, y = median.cvs), shape=19, col="pink") + #median of cross validataion
-  coord_flip()
 
-file_name = paste(fun_name, "report.pdf", sep=".")
-file_path = paste(models_dir, file_name, sep="/")
-ggsave(p, filename=file_path, height=8.27+0.1*8.27, width = 11.69+0.1*11.69) 
+## -- 2 degree selected AA with metabolites -- ####
+models_dir = "./figures/models/selected_kinases_AA.met"
+unlink(models_dir, recursive = T, force = FALSE)
+dir.create(models_dir)
+
+resultsAA = metabolite_models(predictors.matrix=dataAA$proteins, 
+                              response.matrix=dataAA$metabolites, 
+                              before = F, after = T, models_dir = models_dir, scale.var=T, order=2, include.metabolites=T)
+
+plotReport(toPlot=resultsAA, fun_name=fun_name, models_dir=models_dir)
+
+
 
 ## -- selected AA quantiles  ----
 models_dir = "./figures/models/selected_kinases_AA.quantiles"
@@ -850,23 +960,8 @@ dir.create(models_dir)
 dataPPP_AA = clean_data_PPP_AA(models_dir = models_dir)
 resultsPPP_AA = make_models(proteins=dataPPP_AA$proteins, dataPPP_AA$metabolites, models_dir=models_dir)
 
-toPlot = resultsPPP_AA
-clean = resultsPPP_AA %>% group_by(metabolite) %>% summarize(clean.r.sq = clean.r.sq[1],
-                                                         cv.r.squared.all = cv.r.squared.all[1],
-                                                         cv.r.squared.after = cv.r.squared.after[1],
-                                                         median.cvs = median.cvs[1])
-
-p = ggplot(toPlot, aes(x = metabolite, y = r.squared)) + 
-  geom_boxplot() + 
-  geom_point(data=clean, aes(x = metabolite, y = clean.r.sq), col="red") + #R2 with cleaned data
-  geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.all), shape=20, col="blue") + #single CV R2 with all data
-  geom_point(data=clean, aes(x = metabolite, y = cv.r.squared.after), shape=19, col="green") + #single CV R2 with cleaned data
-  geom_point(data=clean, aes(x = metabolite, y = median.cvs), shape=19, col="pink") + #median of cross validataion
-  coord_flip()
-
-file_name = paste(fun_name, "report.pdf", sep=".")
-file_path = paste(models_dir, file_name, sep="/")
-ggsave(p, filename=file_path, height=8.27+0.1*8.27, width = 11.69+0.1*11.69) 
+plotReport(toPlot=resultsPPP_AA, fun_name=fun_name, models_dir=models_dir)
+str(resultsTCA)
 
 resultsAA$dataset = "selectedAA"
 resultsPPP_AA$dataset = "screenPPP_AA"

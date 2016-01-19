@@ -619,6 +619,8 @@ createDataset(response.matrix=dataPPP_AA$metabolites,
 dataPPP_AA.imputed = clean_data_PPP_AA(imputed=T)
 file_name = paste("dataPPP_AA.imputed", fun_name, "RData", sep=".")
 file_path = paste(output_dir, file_name, sep="/")
+save(dataPPP_AA.imputed,file=file_path)
+
 
 
 
