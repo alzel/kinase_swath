@@ -1,9 +1,12 @@
 #!/usr/bin/env Rscript
 rm(list=ls())
-source("./R/functions.R")
 source("./R/boot.R")
+source("./R/functions.R")
+
 
 plots.list = list()
+
+
 fun_name = "get_peptides2"
 
 ## ---- data_load ----
@@ -22,6 +25,55 @@ stopifnot(any(as.vector((peptides.data %>%
                            group_by(R.Label) %>% 
                            mutate(n = n()) %>% select(n))[,2]) == 1))
 
+## 7 batch clusters decided ##
+exp_metadata$aquisition_date.str = as.POSIXct(strftime(exp_metadata$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
+exp_metadata$batch_kmeans = pam(exp_metadata$aquisition_date.str, 7)$clustering
+
+#removing outliers based on total Peak_Area
+summary.stats <- peptides.data %>%
+  select(R.Label, F.PeakArea) %>%
+  group_by(R.Label) %>% 
+  summarise(signal = sum(F.PeakArea)) %>%
+  gather(stats, value, -R.Label)
+
+summary.stats$batch_kmeans <- exp_metadata$batch_kmeans[match(summary.stats$R.Label, exp_metadata$sample_name)]
+
+# Decide which samples should be removed --------------------
+
+summary.stats = summary.stats %>% 
+  group_by(stats, batch_kmeans) %>% 
+  mutate(z_value = (value - mean(value, na.rm=T))/sd(value, na.rm=T),
+         toRemove = ifelse(abs(z_value) > 3, 1, 0))
+
+summary.stats$batch_kmeans = exp_metadata$batch_kmeans[match(summary.stats$R.Label, exp_metadata$sample_name)]
+summary.stats$aquisition_date.str = exp_metadata$aquisition_date.str[match(summary.stats$R.Label, exp_metadata$sample_name)]
+toPlot = summary.stats
+toPlot$isMix = ifelse(grepl(toPlot$R.Label, pattern = "mix", ignore.case = T),1,0)
+
+library(scales)
+p <- ggplot(toPlot, aes(x=aquisition_date.str,y=value, colour=factor(batch_kmeans))) +
+  geom_point() +
+  geom_point(data = toPlot %>% filter(toRemove == 1), shape=4, colour="red", size=5) +
+  geom_point(data = toPlot %>% filter(isMix == 1),  colour="black") +
+  geom_text(data=toPlot %>% filter(toRemove == 1), 
+            aes(x=aquisition_date.str, y=value, label=R.Label), vjust = 0.05, hjust = -0.1) +
+  facet_wrap(~stats, scales="free", ncol = 1) +
+  ylab("Total sum of peak areas") +
+  theme(axis.text.x = element_blank(),
+        legend.position = "none")
+
+plots.list = lappend(plots.list, p)
+
+#selecting relevant for kinases paper analysis
+summary.stats$isInteresting <- ifelse(summary.stats$R.Label %in% exp_metadata$sample_name[grepl(exp_metadata$type,ignore.case = T, pattern = "Kinase|Wild Type|Mix")],1,0)
+
+file_name = paste("summary.stats", fun_name, "RData", sep = ".")
+file_path = paste(output_dir, file_name, sep="/")
+save(summary.stats, file=file_path) 
+
+
+# Peptide summaries ----------------
+selected = summary.stats %>% filter(toRemove == 0, isInteresting == 1) %>% ungroup %>% select(R.Label) %>% distinct()
 
 # Intructions from Oliver Bernhardt
 #for each precursor (modified sequence + charge) you do:
@@ -31,10 +83,10 @@ stopifnot(any(as.vector((peptides.data %>%
 #  4) order these fragments based on their cross run average interference score (from low to high).
 #  5) add fragments from this ordered list to the set you already obtained in step 1 till you have AT LEAST 3 fragments selected for quantification.
 
-
+peptides.data.f <- peptides.data %>% filter(R.Label %in% selected$R.Label)
 
 quant_thr = 3
-peptides.data.tmp = peptides.data %>% 
+peptides.data.tmp = peptides.data.f %>%
   group_by(FG.Id, fragment) %>% 
   mutate(F.GoodInAll = ifelse(any(F.PossibleInterference == "True"),0,1),
          mean.F.InterferenceScore = mean(F.InterferenceScore, na.rm=T),
@@ -58,7 +110,6 @@ fragments.data$miss.count = NULL
 fragments.data$topquant = NULL
 fragments.data$quanty_all = NULL
 
-
 fragments.data = fragments.data %>% group_by(FG.Id) %>%  mutate(qvalue.median = median(unique(EG.Qvalue)))
 
 file_name = paste("fragments.data", fun_name, "RData", sep = ".")
@@ -72,38 +123,7 @@ p = ggplot(fragments.data, aes(x = log(qvalue.median))) +
 plots.list = lappend(plots.list, p)
 
 ## ---- selecting peptides based on spectronaut Q-value
-
 fragments.data.f = filter(fragments.data, qvalue.median <= 0.01, F.IsQuantified == T)
-
-# peptides.data$EG.StrippedSequence = factor(peptides.data$EG.StrippedSequence)
-# peptides.data$R.Label = factor(peptides.data$R.Label)
-# 
-# peptides.data = tbl_df(peptides.data[peptides.data$R.Label %in% exp_metadata$sample_name,])
-# 
-# peptides.peak_stats <- peptides.data %>% group_by(R.Label, EG.StrippedSequence, FG.Id, batch) %>%
-#                                          summarize(count = n(),
-#                                                    count.PossibleInterference = length(F.PeakArea[F.PossibleInterference != "True"]),
-#                                                    sum.F.PeakArea = sum(F.PeakArea[F.PossibleInterference != "True"]),
-#                                                    sum.F.PeakArea.all = sum(F.PeakArea),
-#                                                    signal = FG.TotalPeakArea[1])
-# 
-# 
-# toPlot = droplevels(peptides.peak_stats[peptides.peak_stats$FG.Id %in% sample(x=levels(peptides.peak_stats$FG.Id), size=50),])
-# p = ggplot(toPlot, aes(x=jitter(as.numeric(FG.Id)), y=jitter(count.PossibleInterference))) +
-#       geom_point() +
-#       scale_x_continuous(breaks=as.numeric(factor(levels(toPlot$FG.Id))), labels=levels(toPlot$FG.Id))+
-#       xlab("FG.Id") +
-#       theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
-# plots.list = lappend(plots.list, p)
-
-
-
-
-
-# peptides.peak_sums <- group_by(peptides.data, batch_date, batch, batch.exp.n, R.Label, EG.StrippedSequence) %>%
-#   dplyr::summarise(count = n(),
-#                    signal = FG.TotalPeakArea[1],
-#                    EG.Qvalue = EG.Qvalue[1]) %>% group_by(R.Label, EG.StrippedSequence) %>% distinct(R.Label, EG.StrippedSequence) #TODO: in future batch variable (spectronaut batch) has to be removed
 
 peptides.peak_sums <- fragments.data.f %>% 
                       group_by(batch,R.Label, EG.StrippedSequence, FG.Id) %>%
@@ -115,7 +135,6 @@ peptides.peak_sums <- fragments.data.f %>%
 
 peptides.peak_sums$aquisition_date = exp_metadata$aquisition_date[match(peptides.peak_sums$R.Label, exp_metadata$sample_name)]
 peptides.peak_sums$batch.exp.n = exp_metadata$batch.exp.n[match(peptides.peak_sums$R.Label, exp_metadata$sample_name)]
-
 
 peptides.peak_sums.stats = peptides.peak_sums %>% group_by(R.Label, aquisition_date) %>% summarize(sum = sum(signal),
                                                                                         median = median(signal),
@@ -156,7 +175,6 @@ p = ggplot(toPlot, aes(x=aquisition_date.str, y=signal, col=batch.exp.n)) +
           facet_wrap(~EG.StrippedSequence, scales="free")
 
 
-
 ## -- batch clustering ----
 
 exp_clusters = tbl_df(exp_metadata)
@@ -194,27 +212,7 @@ p = ggplot(toPlot.merged, aes(x=aquisition_date.str, y=signal, col=value)) +
 plots.list = lappend(plots.list, p)
 
 
-## 7 batch clusters decided ##
-
-exp_metadata$aquisition_date.str = as.POSIXct(strftime(exp_metadata$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
-exp_metadata$batch_kmeans = pam(exp_metadata$aquisition_date.str, 7)$clustering
-#exp_metadata$batch_kmeans = kmeans(exp_metadata$aquisition_date.str, 7)$cl
-                                    
-
-## -- filtering based on Q-value ----
-# qvalues.stats <- peptides.peak_sums %>% group_by(EG.StrippedSequence) %>%  dplyr::summarise(qvalue.median = median(EG.Qvalue))
-# p = ggplot(qvalues.stats, aes(x = log(qvalue.median))) + 
-#   geom_density() +
-#   geom_vline(xintercept = log(0.01))
-# plots.list = lappend(plots.list, p)
-# 
-# peptides.peak_sums = merge(peptides.peak_sums, qvalues.stats, by = c("EG.StrippedSequence"))
-# peptides.peak_sums = tbl_df(peptides.peak_sums)
-#peptides.peak_sums.f = filter(peptides.peak_sums, qvalue.median <= 0.01)
-
-
 peptides.peak_sums$T_signal = with(peptides.peak_sums, log(signal))
-
 thr_remove = 0 #removing thr_remove/2% from each side of data
 peptides.peak_sums.trimmed = peptides.peak_sums
 
@@ -242,29 +240,29 @@ save(peptides.peak_sums.trimmed, file=file_path)
 peptides.df = dcast(peptides.peak_sums.trimmed, formula=EG.StrippedSequence~R.Label, value.var="T_signal")
 peptides.matrix = as.matrix(peptides.df[,-1])
 rownames(peptides.matrix) = peptides.df$EG.StrippedSequence
-
-pheno = exp_metadata[match(colnames(peptides.matrix), exp_metadata$sample_name),]
-
-mod = model.matrix(~as.factor(ORF), data=pheno)
-
-peptides.matrix.combat = ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=mod, par.prior=T)
-#peptides.matrix.combat.vsn = normalizeVSN(ComBat(exp(peptides.matrix), batch=pheno$batch_kmeans, mod=mod, par.prior=T))
-#peptides.matrix.vsn.combat = ComBat(normalizeVSN(exp(peptides.matrix)), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
-peptides.matrix.combat.quant = normalizeQuantiles(ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=mod, par.prior=T))
-peptides.matrix.quant.combat = ComBat(normalizeQuantiles(peptides.matrix), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
-
 file_name = "peptides.matrix.RData"
 file_path = paste(output_dir, file_name, sep="/")
 save(peptides.matrix,file=file_path) 
 
+
+pheno = droplevels(exp_metadata[match(colnames(peptides.matrix), exp_metadata$sample_name),])
+
+mod = model.matrix(~as.factor(ORF), data=pheno)
+
+peptides.matrix.combat = ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=mod, par.prior=T)
 file_name = "peptides.matrix.combat.RData"
 file_path = paste(output_dir, file_name, sep="/")
 save(peptides.matrix.combat,file=file_path) 
 
+#peptides.matrix.combat.vsn = normalizeVSN(ComBat(exp(peptides.matrix), batch=pheno$batch_kmeans, mod=mod, par.prior=T))
+#peptides.matrix.vsn.combat = ComBat(normalizeVSN(exp(peptides.matrix)), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
+
+peptides.matrix.combat.quant = normalizeQuantiles(ComBat(peptides.matrix, batch=pheno$batch_kmeans, mod=mod, par.prior=T))
 file_name = "peptides.matrix.combat.quant.RData"
 file_path = paste(output_dir, file_name, sep="/")
 save(peptides.matrix.combat.quant,file=file_path) 
 
+peptides.matrix.quant.combat = ComBat(normalizeQuantiles(peptides.matrix), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
 file_name = "peptides.matrix.quant.combat.RData"
 file_path = paste(output_dir, file_name, sep="/")
 save(peptides.matrix.quant.combat,file=file_path) 
@@ -327,7 +325,7 @@ annot$text = paste(annot$x_var, annot$y_var)
 
 library(cowplot)
 p = ggplot(scores, aes(x=PC1, y=PC2)) + 
-  geom_point(size=3, aes(col=batch) )+
+  geom_point(size=3, aes(col=batch_kmeans) )+
   geom_vline(xintercept = 0) +
   geom_hline(yintercept = 0) +
   geom_point(data=scores.mix, aes(x=PC1, y=PC2),size=3,col="black", shape=17) +
@@ -335,60 +333,10 @@ p = ggplot(scores, aes(x=PC1, y=PC2)) +
   facet_wrap(~type, scales="fixed") + 
   theme(aspect.ratio = 1, 
         axis.text = element_text(size = rel(1.5)))
-
 file_name = paste(fun_name,"batch_effects", "pdf", sep=".")
 file_path = paste(figures_dir, file_name, sep="/")
 ggsave(filename=file_path, plot=p, height=8.27, width = 2*8.27)
 
-
-
-# pca
-# message("plotting PCA results")
-# 
-# file_name = "PCA_batch_effects.pdf"
-# file_path = paste(figures_dir, file_name, sep="/")
-# pdf(file_path, width=11.7+0.1*11.7, height=8.27+0.1*8.27)
-# par(pty="s", mfrow=c(1,2))
-# 
-# 
-# 
-# pca = prcomp(t(before), scale.=T)
-# x_var = round(pca$sdev[1]^2/sum(pca$sdev^2)*100,2)
-# y_var = round(pca$sdev[2]^2/sum(pca$sdev^2)*100,2)
-# 
-# plot(pca$x[,1], pca$x[,2], cex=1.5, cex.lab=1.5, col=pheno$batch_date, pch=16, main="Before adjustments for batch effects", 
-#      xlab=paste("PC1,", x_var), 
-#      ylab=paste("PC2,", y_var))
-# pca.mix = pca$x[grep(x=rownames(pca$x), pattern="mix", ignore.case=T),]
-# pca.wt = pca$x[match(pheno$sample_name[pheno$ORF=="WT"], rownames(pca$x)),]
-# points(pca.mix[,1], pca.mix[,2], pch=8, col="black", cex=3)
-# points(pca.wt[,1], pca.wt[,2], pch=2, col="black", cex=3)
-# text(pca$x[,1], pca$x[,2], labels=as.numeric(pheno$batch.exp), cex=0.5)
-# 
-# pca = prcomp(t(after), scale.=T)
-# #pca = prcomp(t(proteins.matrix.f., scale.=T)
-# x_var = round(pca$sdev[1]^2/sum(pca$sdev^2)*100,2)
-# y_var = round(pca$sdev[2]^2/sum(pca$sdev^2)*100,2)
-# 
-# plot(pca$x[,1], pca$x[,2], cex=1.5, cex.lab=1.5, col=pheno$batch_date, pch=16, main="After adjustments for batch effects",
-#      xlab=paste("PC1,", x_var), 
-#      ylab=paste("PC2,", y_var))
-# pca.mix = pca$x[grep(x=rownames(pca$x), pattern="mix", ignore.case=T),]
-# pca.wt = pca$x[match(pheno$sample_name[pheno$ORF=="WT"], rownames(pca$x)),]
-# points(pca.mix[,1], pca.mix[,2], pch=8, col="black", cex=3)
-# points(pca.wt[,1], pca.wt[,2], pch=2, col="black", cex=3)
-# text(pca$x[,1], pca$x[,2], labels=as.numeric(pheno$batch.exp), cex=0.5)
-# 
-# 
-# p = recordPlot()
-# plots.list = lappend(plots.list, p)
-# dev.off()
-
-
-
-#individual examples
-#before = peptides.matrix
-#after =  peptides.matrix.combat
 
 
 before.long = tbl_df(melt(before, id.vars="rownames"))
@@ -426,6 +374,95 @@ p = ggplot(toPlot, aes(x=aquisition_date.str, y=exp(signal), col=batch_kmeans)) 
 
 plots.list = lappend(plots.list, p)
 
+
+# Proteins per sample -------------------------
+dataset.tmp <- peptides.data.f %>% 
+  select(R.Label, EG.StrippedSequence, EG.Qvalue ) %>%
+  dcast(formula = "EG.StrippedSequence ~ R.Label", value.var = "EG.Qvalue", fun.aggregate = min)
+
+dataset.tmp[,-1][is.infinite(as.matrix(dataset.tmp[,-1]))] <- NA
+dataset.tmp[,-1][dataset.tmp[,-1] > 0.01] <- NA
+
+load("./R/objects/protein_annotations_trypsin._clean_.RData")
+protein_annotations.unique <- tbl_df(protein_annotations) %>% 
+  ungroup() %>% 
+  dplyr::select(strippedSequence, SystName) %>% 
+  distinct()
+
+measured_peptides <- unique(peptides.data.f$EG.StrippedSequence)
+
+protein_annotations.all <- protein_annotations %>% 
+  dplyr::select(strippedSequence, SystName) 
+
+
+dataset.raw.f.good <- peptides.data.f %>% left_join(protein_annotations.all, by = c("EG.StrippedSequence" = "strippedSequence"))
+dataset.raw.f.good <- dataset.raw.f.good %>% rename(ProteinName = SystName)
+
+fdr_thr1 = 0.01
+fdr_thr5 = 0.05
+
+total_samples = length(unique(dataset.raw.f.good$R.Label))
+entity_summaries <- dataset.raw.f.good %>%  
+  ungroup() %>%
+  #select(Fragment_Annotation, transition_group_id, FullPeptideName, ProteinName, filename, m_score) %>% str()
+  select(ProteinName, R.Label, EG.Qvalue) %>%
+  gather(stats, value, -R.Label, -EG.Qvalue) %>% 
+  group_by(stats, value, R.Label) %>% 
+  summarise(min.EG.Qvalue = min(EG.Qvalue, na.rm=T)) %>%
+  group_by(R.Label) %>% filter(min.EG.Qvalue < fdr_thr1 ) %>%
+  summarise(n = n())
+
+p <- ggplot(entity_summaries, aes(x=n)) +
+  geom_histogram() +
+  xlab("Proteins per samples")
+plots.list = lappend(plots.list, p)
+
+
+## Statistics ######
+stats_table <- data.frame(stats_name = character(),
+                          value = character(), 
+                          comment=character(),
+                          stringsAsFactors=FALSE)
+
+#Number of all aquired samples including outliers
+stats_tmp <- data.frame(stats = "uniq_R.Label", 
+                        value = length(unique(peptides.data$R.Label)), 
+                        comment = "Number of all aquired samples including outliers")
+stats_table <- rbind(stats_table, stats_tmp)
+
+#number of analysed kinases
+tmp.selected <- exp_metadata[match(unique(colnames(peptides.matrix)), exp_metadata$sample_name),]
+
+stats_tmp <- data.frame(stats = "uniq_kinases", 
+                        value = length(unique(tmp.selected$ORF[tmp.selected$type == "Kinase"])), 
+                        comment = "Number of kinase mutants analysed")
+stats_table <- rbind(stats_table, stats_tmp)
+
+#number of samples with mix, kinases or wild_type
+tmp.selected <- exp_metadata[match(unique(peptides.data.f$R.Label), exp_metadata$sample_name),]
+stats_tmp <- data.frame(stats = "uniq_Interesting_samples", 
+                        value = length(unique(colnames(peptides.matrix)[grepl(tmp.selected$type,ignore.case = T, pattern = "Kinase|Wild Type|Mix")])), 
+                        comment = "Number of samples with mix, kinases or wild_type")
+stats_table <- rbind(stats_table, stats_tmp)
+
+#mean number of proteins detected in samples (irrespective of peptide non-uniq match)
+stats_tmp <- data.frame(stats = "mean_proteins", 
+                        value = mean(entity_summaries$n), 
+                        comment = "#mean number of proteins detected in samples (irrespective of peptide non-uniq match)")
+stats_table <- rbind(stats_table, stats_tmp)
+
+#mean number of proteins detected in samples (irrespective of peptide non-uniq match)
+stats_tmp <- data.frame(stats = "sd_proteins", 
+                        value = sd(entity_summaries$n), 
+                        comment = "#sd number of proteins detected in samples (irrespective of peptide non-uniq match)")
+stats_table <- rbind(stats_table, stats_tmp)
+
+library("gridExtra")
+p <- tableGrob(stats_table)
+plots.list = lappend(plots.list, p)
+
+
 file_name = paste(fun_name, "report.pdf", sep=".")
 file_path = paste(figures_dir, file_name, sep="/")
 save_plots(plots.list, filename=file_path, type="l") 
+
