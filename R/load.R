@@ -39,6 +39,48 @@ load_proteome = function() {
   
 }
 
+## loads spectronaut results with new library from 2016-01-16
+load_proteome2 = function() {
+  
+  input_path = "./data/2016-01-16/1601_analysis/"
+  message("Loading proteome")
+  
+  filesToProcess = dir(path=input_path, pattern = "*.xls", recursive=F)
+  filesToProcess = filesToProcess[grep(pattern="*.xls", x=filesToProcess)]
+  pattern.p = "batch([0-9]+)*.*"
+  #pattern.p = "KL_Try_Spectronaut_Batch02_([0-9]+)_([A-Za-z0-9 ]+)_([0-9]+)_([0-9]+).xls"
+  
+  matches = stringr::str_match_all(pattern=pattern.p, filesToProcess)
+  
+  read_peptides = function(x) {
+    file_name = paste(input_path,x[[1]], sep="/") 
+    table = read.table(file_name, sep="\t", header=T)
+    table$acquisition_batch = factor(rep(as.integer(x[[2]]), nrow(table))) #Spectronaut batch
+    #table$type  = factor(rep(x[[3]], nrow(table)))
+    #table$Sp_date =  factor(rep(x[[4]], nrow(table))) #Spectranaut date
+    #table$Sp_time =  factor(rep(x[[5]], nrow(table))) 
+    table$file =  factor(rep(x[[1]], nrow(table)))
+    return(table)
+  }
+  
+  
+  file.list = lapply(matches, FUN=read_peptides)
+  dataset.peptides.raw = do.call(rbind.data.frame, file.list)
+  
+  file_name = paste("dataset.peptides.raw_2016_01_16", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(dataset.peptides.raw,file=file_path)
+  
+  dataset.peptides.raw <- tbl_df(dataset.peptides.raw)
+  dataset.peptides.raw.test <- dataset.peptides.raw %>% group_by(E.Name, R.Label ) %>% filter(row_number() <= 1000) 
+  
+  file_name = paste("dataset.peptides.raw.test_2016_01_16", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(dataset.peptides.raw.test,file=file_path)
+}
+
+
+
 load_batch_map = function() {
   experiment_map.raw <- read.delim("./data/2014-11-03/1411_Batches/KL_batches_JV_v01.txt")
   
@@ -97,6 +139,30 @@ load_protein_annotations = function() {
   file_path = paste(output_dir, file_name, sep="/")
   save(protein_annotations,file=file_path)
 }
+
+load_protein_annotations_trypsin = function() {
+  tmp = read.csv(file="./data/2015-02-24/protein_annotation_expanded_uniprot_v01.csv", header=T)
+  load("./R/objects/data.frame.peptides.raw._load_.RData")
+  measured_peptides <- unique(dataset.peptides.raw$EG.StrippedSequence)
+  
+
+  trypsin_db <- read.delim("./results/2016-01-17/sgd_S288C_2016_02_04_orf_trans_all_nostars.trypsin", header=FALSE)
+  names(trypsin_db) <- c("SystName", "strippedSequence")
+  trypsin_db <- tbl_df(trypsin_db) 
+  
+  protein_annotations <- trypsin_db %>% 
+    filter(strippedSequence %in% measured_peptides) %>%
+    group_by(strippedSequence) %>% 
+    arrange(strippedSequence) %>%
+    mutate(ProteinsPerPeptide = n(), 
+           nchar = nchar(as.character(strippedSequence)),
+           specificity = ifelse(ProteinsPerPeptide == 1, "unique", "unspecific"))
+
+  file_name = paste("protein_annotations_trypsin", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(protein_annotations,file=file_path)
+}
+
 
 loadKEGG = function() {
   library("RCurl")
@@ -478,6 +544,7 @@ main = function() {
   load_dates_map()
   load_acqusition_times()
   load_protein_annotations()
+  load_protein_annotations_trypsin()
   load_gene_annotations()
   load_metabolites()
   load_metabolites_TCA()
