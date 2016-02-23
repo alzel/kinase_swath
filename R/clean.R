@@ -1,3 +1,5 @@
+
+rm(list=ls())
 source("./R/boot.R")
 output_dir = "./R/objects"
 dir.create(output_dir)
@@ -81,6 +83,40 @@ create.peptides = function() {
 #   file_path = paste(output_dir, file_name, sep="/")
 #   save(peptide2orfs,file=file_path)  
     
+}
+
+create.peptides2 = function() {
+  
+  load("./R/objects/data.frame.peptides.raw_2016_01_16._load_.RData") # load.R::load_proteome()
+  load("./R/objects/dates_map.RData")               # load.R::
+  load("./R/objects/experiment.map.RData")
+  
+  peptides.raw <- tbl_df(dataset.peptides.raw)  
+  peptides.filtered = peptides.raw
+  #stopifnot(identical(peptides.filtered$R.FileName, peptides.filtered$R.Label))
+  
+  
+  
+  #peptides.filtered$sample = factor(sub(x=peptides.filtered$R.Label, pattern="^(KL_\\w+_\\w+)_\\w+", replacement="\\1", perl=T))
+  #peptides.filtered$replicate = factor(sub(x=peptides.filtered$R.Label, pattern="^KL_\\w+_\\w+_(\\w+)", replacement="\\1", perl=T))
+  
+  peptides.filtered$fragment = factor(with(peptides.filtered,  paste(F.FrgType, F.FrgNum, F.FrgLossType, sep=".")))
+  
+  #   peptides.data = select(peptides.filtered, batch, sample, replicate, R.Label, 
+  #                          EG.Label, EG.StrippedSequence, EG.Qvalue,  EG.Id, fragment, FG.PrecursorMz, FG.TotalPeakArea, F.PeakArea )
+  
+  peptides.data = dplyr::select(peptides.filtered, R.Label, file,
+                                EG.StrippedSequence, FG.Id, EG.Qvalue, FG.TotalPeakArea,
+                                fragment,
+                                F.PeakArea )
+  
+  peptides.data$EG.StrippedSequence = factor(peptides.data$EG.StrippedSequence)
+  peptides.data$R.Label = factor(peptides.data$R.Label)
+  
+
+  file_name = paste("peptides.data_2016_01_16", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(peptides.data,file=file_path)  
 }
 
 create.exp_annotations = function() {
@@ -509,6 +545,29 @@ create.sentinelSRM_list = function() {
   save(sentinelsSRM,file=file_path)
 }
 
+create_irt_dataset <- function() {
+  
+  
+  db_path = "./results/2016-01-17/results/OpenSwathWorkflow_with_dscore_unagrigated_filtered.db"
+  my_db <- src_sqlite(db_path, create = F)
+  dataset_sqlite <- tbl(my_db, "my_table")
+  
+  main_table = "my_table"
+  
+  my_query <- paste0("SELECT * FROM my_table
+                        WHERE decoy = 0 AND 
+                        peak_group_rank = 1 AND 
+                        Peak_Area > 0 AND
+                        ProteinName LIKE '%Biognosys%'")
+  
+  dataset_irt_openswath <- tbl(my_db,  sql(my_query)) %>% collect()
+  
+  file_name = paste("dataset_irt_openswath", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(dataset_irt_openswath,file=file_path)  
+  
+}
+
 
 
 
@@ -516,7 +575,7 @@ main = function() {
   create.peptides()
   create.exp_annotations()
   createMetabolites()
-  createPicotti_Data_1()
+  #createPicotti_Data_1()
   createMetadata()
   createAA() 
   createAA_michael()
