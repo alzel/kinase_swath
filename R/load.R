@@ -141,7 +141,6 @@ load_protein_annotations = function() {
 }
 
 load_protein_annotations_trypsin = function() {
-  tmp = read.csv(file="./data/2015-02-24/protein_annotation_expanded_uniprot_v01.csv", header=T)
   load("./R/objects/data.frame.peptides.raw._load_.RData")
   measured_peptides <- unique(dataset.peptides.raw$EG.StrippedSequence)
   
