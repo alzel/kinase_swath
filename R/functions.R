@@ -283,7 +283,8 @@ save_plots = function(plots.list, filename, type="p") {
   
   pdf(filename, width=width, height=height)
   for (i in 1:length(plots.list)) {
-    print(plots.list[[i]])
+    #print(plots.list[[i]])
+    plot(plots.list[[i]])
   }
   dev.off()
 }
@@ -790,4 +791,63 @@ getFC_thr = function(proteins.matrix = proteins.matrix.combat, pval_thr = 0.01) 
   dev.off()
   
   return(abs(fc_thr))
+}
+
+
+library(Matrix)
+jaccard <- function(m) {
+  ## common values:
+  A = tcrossprod(m)
+  ## indexes for non-zero common values
+  im = which(A > 0, arr.ind=TRUE)
+  ## counts for each row
+  b = rowSums(m)
+  
+  ## only non-zero values of common
+  Aim = A[im]
+  
+  ## Jacard formula: #common / (#i + #j - #common)
+  J = sparseMatrix(
+    i = im[,1],
+    j = im[,2],
+    x = Aim / (b[im[,1]] + b[im[,2]] - Aim),
+    dims = dim(A)
+  )
+  
+  return( J )
+}
+
+
+sample_removal <- function(fragments.tmp, fdr_thr1) {
+  
+  fragments.tmp[,-1] <- ifelse(fragments.tmp[,-1] < fdr_thr1, 1, 0) 
+  fragments.tmp[is.na(fragments.tmp)] = 0
+  fragments.tmp.matrix <- as.matrix(fragments.tmp[,-1])
+  rownames(fragments.tmp.matrix) <- fragments.tmp$value
+  
+  sample_names <- colnames(fragments.tmp.matrix)
+  tmp.matrix = as.matrix(jaccard(t(fragments.tmp.matrix)))
+  diag(tmp.matrix) = NA
+  
+  tmp.list = list()
+  
+  rank_order = order(rank(rowMeans(tmp.matrix, na.rm = T)))
+  for (i in 1:(nrow(tmp.matrix)-2)) {
+    idx_remove <- rank_order[1:i]
+    fragments.tmp.matrix.f <- fragments.tmp.matrix[, -idx_remove]
+    fragments.tmp.matrix.f[fragments.tmp.matrix.f == 0] <- NA
+    
+    #z <<- data.frame(filename = sample_names[i], N = nrow(na.omit(fragments.tmp.matrix.f)))
+    fragments.tmp.matrix.f
+    tmp.list[[i]] <- data.frame(filename = sample_names[i], N = nrow(na.omit(fragments.tmp.matrix.f)), i=i)
+  }
+  #adding if dataset left untouched
+  idx <- length(tmp.list)+1
+  fragments.tmp.matrix.f = fragments.tmp.matrix
+  fragments.tmp.matrix.f[fragments.tmp.matrix.f == 0] <- NA
+  tmp.list[[idx]] <- data.frame(filename = "none", N = nrow(na.omit(fragments.tmp.matrix.f)), i=0)
+  entity_removal <- do.call(rbind.data.frame, tmp.list)
+  
+  entity_removal$z_score = (entity_removal$N - mean(entity_removal$N))/sd(entity_removal$N)
+  return(entity_removal)
 }
