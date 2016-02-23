@@ -1,4 +1,5 @@
 rm(list=ls())
+
 source("./R/functions.R")
 source("./R/boot.R")
 
@@ -11,7 +12,7 @@ load("./R/objects/peptides.matrix.RData")
 
 load("./R/objects/peptides.matrix.combat.quant.RData")
 load("./R/objects/peptides.cor.stats.top.RData")
-load("./R/objects/protein_annotations._load_.RData")
+load("./R/objects/protein_annotations_trypsin._clean_.RData")
 
 #write.table(x=rownames(peptides.matrix.combat), file="peptide.txt", quote=F, row.names=F, col.names=F)
 
@@ -54,7 +55,7 @@ makeProteins = function(...) {
   proteins.matrix = as.matrix(proteins.df[,-1])
   rownames(proteins.matrix) = proteins.df$ORF
   
-  
+  message(paste("number of proteins", nrow(proteins.matrix)))
   file_name = paste(proteins.matrix_name, "RData", sep=".")
   file_path = paste(output_dir, file_name, sep="/")
   
@@ -121,75 +122,6 @@ makeProteins = function(...) {
   
 }
 
-
-
-#peptides.long = tbl_df(melt(peptides.matrix.combat, id.vars="rownames"))
 makeProteins(peptides.matrix)
 makeProteins(peptides.matrix.combat)
 makeProteins(peptides.matrix.combat.quant)
-
-
-
-# ## peptides/proteins differential expression
-# 
-# ## -- protein fold-changes ----
-# proteins.matrix = proteins.matrix.combat.quant
-# 
-# pheno = exp_metadata[match(colnames(proteins.matrix), exp_metadata$sample_name),]
-# pheno = droplevels(filter(pheno, type != "Standard Mix"))
-# 
-# proteins.matrix.f = proteins.matrix[,match(pheno$sample_name, colnames(proteins.matrix))]
-# 
-# X = model.matrix(~pheno$ORF + 0)
-# colnames(X) = levels(pheno$ORF)
-# 
-# reference = "WT"
-# matrix = proteins.matrix.f
-# 
-# lm.fit_model = lmFit(matrix, X)
-# ph = unique(as.character(pheno$ORF))
-# contrasts = paste0( ph[ph !=reference] ,"-", reference)  
-# 
-# mc = makeContrasts(contrasts=contrasts, levels=X)    
-# c.fit = contrasts.fit(lm.fit_model, mc)
-# eb = eBayes(c.fit)
-# 
-# 
-# folds = rowFolds(data=exp(matrix), groups=pheno$ORF, reference=reference)
-# folds = log(folds, 2)
-# 
-# #folds_tmp = melt(as.matrix(folds), id.vars="row.names")
-# 
-# #merging results
-# folds_tmp = melt(eb$coefficients, id.vars="row.names")
-# #folds_tmp$contrasts = factor(paste(folds_tmp$contrasts, "-", reference, sep=""))
-# pvals_tmp = melt(eb$p.value, id.vars="row.names")
-# 
-# 
-# names(folds_tmp) = c("ORF", "contrasts", "logFC")
-# names(pvals_tmp) = c("ORF", "contrasts", "p.value")
-# 
-# folds_tmp$contrasts = factor(folds_tmp$contrasts)
-# pvals_tmp$contrasts = factor(pvals_tmp$contrasts)
-# 
-# 
-# proteins.FC = merge(folds_tmp, pvals_tmp, all=T,
-#                     by=c("ORF", "contrasts"))
-# 
-# ##multiple testing correction
-# proteins.FC$p.value_BH = p.adjust(proteins.FC$p.value, method="BH")
-# proteins.FC$p.value_bonferroni = p.adjust(proteins.FC$p.value, method="bonferroni")
-# 
-# proteins.FC$KO = sub(x = proteins.FC$contrasts, pattern=paste("(.*?)-", reference, sep=""), replacement="\\1")
-# proteins.FC$reference = reference
-# 
-# proteins.FC.combat.quant = proteins.FC
-# file_name = "proteins.FC.combat.quant.RData"
-# file_path = paste(output_dir, file_name, sep="/")
-# save(proteins.FC.combat.quant, file=file_path)
-# 
-
-
-
-
-
