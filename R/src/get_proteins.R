@@ -9,9 +9,12 @@ fun_name = "get_proteins"
 load("./R/objects/exp_metadata._clean_.RData")
 load("./R/objects/peptides.matrix.combat.RData")
 load("./R/objects/peptides.matrix.RData")
-
+load("./R/objects/peptides.matrix.quant.combat.RData")
 load("./R/objects/peptides.matrix.combat.quant.RData")
 load("./R/objects/peptides.cor.stats.top.RData")
+
+
+
 load("./R/objects/protein_annotations_trypsin._clean_.RData")
 
 #write.table(x=rownames(peptides.matrix.combat), file="peptide.txt", quote=F, row.names=F, col.names=F)
@@ -122,6 +125,8 @@ makeProteins = function(...) {
   
 }
 
+
 makeProteins(peptides.matrix)
 makeProteins(peptides.matrix.combat)
 makeProteins(peptides.matrix.combat.quant)
+makeProteins(peptides.matrix.quant.combat)

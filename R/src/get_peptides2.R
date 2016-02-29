@@ -254,6 +254,7 @@ file_name = "peptides.matrix.combat.RData"
 file_path = paste(output_dir, file_name, sep="/")
 save(peptides.matrix.combat,file=file_path) 
 
+
 #peptides.matrix.combat.vsn = normalizeVSN(ComBat(exp(peptides.matrix), batch=pheno$batch_kmeans, mod=mod, par.prior=T))
 #peptides.matrix.vsn.combat = ComBat(normalizeVSN(exp(peptides.matrix)), batch=pheno$batch_kmeans, mod=mod, par.prior=T)
 

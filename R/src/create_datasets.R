@@ -9,11 +9,12 @@ plots.list = list()
 fun_name = "create_datasets"
 
 
-load("./R/objects/metabolite_metadata._clean_.RData")
+
 load("./R/objects/exp_metadata._clean_.RData")
 load("./R/objects/metabolites.data._clean_.RData")
+load("./R/objects/metabolite_metadata._clean_.RData")
 load("./R/objects/protein_annotations._load_.RData")
-load("./R/objects/proteins.matrix.combat.quant.RData")
+load("./R/objects/proteins.matrix.quant.combat.RData")
 load("./R/objects/proteins.matrix.combat.RData")
 load("./R/objects/exp_metadata._clean_.RData")
 
@@ -30,9 +31,6 @@ load("./R/objects/metabolite2iMM904._load_.RData")
 
 orf2name = unique(data.frame(ORF = protein_annotations$SystName, 
                              gene_name = protein_annotations$sgdName))
-
-
-
 
 
 getResPred = function(response.matrix, predictors.matrix, i,  B, order=NULL, include.metabolites = F) {
@@ -179,11 +177,15 @@ clean_data_TCA = function(imputed = F) {
   
   proteinsTCA.present = proteins.matrix.combat.t.f[match(both.present, rownames(proteins.matrix.combat.t.f)),]
   metabolitesTCA.present = metabolitesTCA.final.matrix[match(both.present, rownames(metabolitesTCA.final.matrix)),]
-
+  
+  
+  
+  
   return(list(proteins = exp(proteinsTCA.present),
               metabolites = exp(metabolitesTCA.present),
               proteins.log = proteinsTCA.present,
-              proteins.log.quant = normalizeQuantiles(proteinsTCA.present)))
+              #proteins.log.quant = normalizeQuantiles(proteinsTCA.present)),
+              proteins.log.quant = t(proteins.matrix.quant.combat)[rownames(proteinsTCA.present),colnames(proteinsTCA.present)] ))
 }
 
 
@@ -275,7 +277,9 @@ clean_data_AA = function() {
   return(list(proteins = exp(proteinsAA.present),
               metabolites = exp(metabolitesAA.present),
               proteins.log = proteinsAA.present,
-              proteins.log.quant = normalizeQuantiles(proteinsAA.present)))
+              #proteins.log.quant = normalizeQuantiles(proteinsAA.present)),
+              proteins.log.quant = t(proteins.matrix.quant.combat)[rownames(proteinsAA.present),colnames(proteinsAA.present)])
+         )
   
 }
 
@@ -389,11 +393,13 @@ clean_data_PPP_AA = function(imputed = F) {
   proteins.mean.matrix.present = t(proteins.mean.matrix[,match(both.present, colnames(proteins.mean.matrix))])
   metabolites.all.mean.matrix.present = t(metabolites.all.mean.matrix[,match(both.present, colnames(metabolites.all.mean.matrix))])
   
+  proteins.mean.matrix.quant = normalizeQuantiles(proteins.mean.matrix)
   return(list(proteins = exp(proteins.mean.matrix.present),
               metabolites = exp(metabolites.all.mean.matrix.present),
               proteins.log = proteins.mean.matrix.present,
-              proteins.log.quant = normalizeQuantiles(proteins.mean.matrix.present)))
-
+              #proteins.log.quant = normalizeQuantiles(proteins.mean.matrix.present)),
+              proteins.log.quant = t(proteins.mean.matrix.quant)[rownames(proteins.mean.matrix.present),colnames(proteins.mean.matrix.present)])
+         )
 
 }
 
@@ -445,7 +451,7 @@ createDataset = function(response.matrix, predictors.matrix, order, include.meta
 
 ##
 
-output_base = "./results/2015-09-29"
+output_base = "./results/2016-02-24"
 
 ## -- TCA ----
 dataTCA = clean_data_TCA(imputed=F)
@@ -455,40 +461,40 @@ file_path = paste(output_dir, file_name, sep="/")
 save(dataTCA,file=file_path)
 
 dataset_dir = "data.TCA"
-output_dir = paste(output_base, dataset_dir, sep = "/")
+output_dir_base = paste(output_base, dataset_dir, sep = "/")
 
-unlink(output_dir, recursive = T, force = FALSE)
-dir.create(output_dir, recursive=T)
+unlink(output_dir_base, recursive = T, force = FALSE)
+dir.create(output_dir_base, recursive=T)
 
-
-createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.TCA")
 
 createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA")
+              predictors.matrix=dataTCA$proteins, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA")
 
 createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA")
+              predictors.matrix=dataTCA$proteins, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.TCA")
+
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA")
 
 ## -- TCA proteins log ----
 createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.log")
+              predictors.matrix=dataTCA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.log")
 
 createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins.log, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA.log")
+              predictors.matrix=dataTCA$proteins.log, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.TCA.log")
 
 createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.log")
+              predictors.matrix=dataTCA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.log")
 
 ## -- TCA proteins log quant ----
 createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins.log.quant, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.log.quant")
+              predictors.matrix=dataTCA$proteins.log.quant, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.log.quant")
 
 createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins.log.quant, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA.log.quant")
+              predictors.matrix=dataTCA$proteins.log.quant, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.TCA.log.quant")
 
 createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.log.quant")
+              predictors.matrix=dataTCA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.log.quant")
 
 
 
@@ -496,19 +502,19 @@ createDataset(response.matrix=dataTCA$metabolites,
 dataTCA.imputed = clean_data_TCA(imputed=T)
 
 dataset_dir = "data.TCA.imputed"
-output_dir = paste(output_base, dataset_dir, sep = "/")
+output_dir_base = paste(output_base, dataset_dir, sep = "/")
 
-unlink(output_dir, recursive = T, force = FALSE)
-dir.create(output_dir, recursive=T)
-
-createDataset(response.matrix=dataTCA.imputed$metabolites, 
-              predictors.matrix=dataTCA$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.imputed")
+unlink(output_dir_base, recursive = T, force = FALSE)
+dir.create(output_dir_base, recursive=T)
 
 createDataset(response.matrix=dataTCA.imputed$metabolites, 
-              predictors.matrix=dataTCA$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA.imputed")
+              predictors.matrix=dataTCA$proteins, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.imputed")
+
+createDataset(response.matrix=dataTCA.imputed$metabolites, 
+              predictors.matrix=dataTCA$proteins, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.TCA.imputed")
 
 createDataset(response.matrix=dataTCA$metabolites, 
-              predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.TCA.imputed")
+              predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.imputed")
 
 
 intersect(rownames(dataTCA$metabolites), rownames(dataAA$metabolites))
@@ -522,42 +528,42 @@ save(dataAA,file=file_path)
 
 
 dataset_dir = "data.AA"
-output_dir = paste(output_base, dataset_dir, sep = "/")
+output_dir_base = paste(output_base, dataset_dir, sep = "/")
 
-unlink(output_dir, recursive = T, force = FALSE)
-dir.create(output_dir, recursive=T)
-
-createDataset(response.matrix=dataAA$metabolites, 
-              predictors.matrix=dataAA$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.AA")
+unlink(output_dir_base, recursive = T, force = FALSE)
+dir.create(output_dir_base, recursive=T)
 
 createDataset(response.matrix=dataAA$metabolites, 
-              predictors.matrix=dataAA$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.AA")
+              predictors.matrix=dataAA$proteins, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA")
+
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.AA")
 
 
 createDataset(response.matrix=dataAA$metabolites, 
-              predictors.matrix=dataAA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.AA")
+              predictors.matrix=dataAA$proteins, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA")
 
 ## -- AA proteins log ----
 
 createDataset(response.matrix=dataAA$metabolites, 
-              predictors.matrix=dataAA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.AA.log")
+              predictors.matrix=dataAA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA.log")
 
 createDataset(response.matrix=dataAA$metabolites, 
-              predictors.matrix=dataAA$proteins.log, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.AA.log")
+              predictors.matrix=dataAA$proteins.log, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.AA.log")
 
 createDataset(response.matrix=dataAA$metabolites, 
-              predictors.matrix=dataAA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.AA.log")
+              predictors.matrix=dataAA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA.log")
 
 ## -- AA proteins log quant ----
 
 createDataset(response.matrix=dataAA$metabolites, 
-              predictors.matrix=dataAA$proteins.log.quant, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.AA.log.quant")
+              predictors.matrix=dataAA$proteins.log.quant, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA.log.quant")
 
 createDataset(response.matrix=dataAA$metabolites, 
-              predictors.matrix=dataAA$proteins.log.quant, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.AA.log.quant")
+              predictors.matrix=dataAA$proteins.log.quant, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.AA.log.quant")
 
 createDataset(response.matrix=dataAA$metabolites, 
-              predictors.matrix=dataAA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.AA.log.quant")
+              predictors.matrix=dataAA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA.log.quant")
 
 
 
@@ -573,42 +579,42 @@ save(dataPPP_AA,file=file_path)
 
 
 dataset_dir = "data.PPP_AA"
-output_dir = paste(output_base, dataset_dir, sep = "/")
+output_dir_base = paste(output_base, dataset_dir, sep = "/")
 
-unlink(output_dir, recursive = T, force = FALSE)
-dir.create(output_dir, recursive=T)
-
-createDataset(response.matrix=dataPPP_AA$metabolites, 
-              predictors.matrix=dataPPP_AA$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA")
+unlink(output_dir_base, recursive = T, force = FALSE)
+dir.create(output_dir_base, recursive=T)
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
-              predictors.matrix=dataPPP_AA$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.PPP_AA")
+              predictors.matrix=dataPPP_AA$proteins, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA")
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
-              predictors.matrix=dataPPP_AA$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA")
+              predictors.matrix=dataPPP_AA$proteins, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.PPP_AA")
+
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA")
 
 ## -- proteins PPP log ----
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
-              predictors.matrix=dataPPP_AA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.log")
+              predictors.matrix=dataPPP_AA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.log")
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
-              predictors.matrix=dataPPP_AA$proteins.log, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.PPP_AA.log")
+              predictors.matrix=dataPPP_AA$proteins.log, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.PPP_AA.log")
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
-              predictors.matrix=dataPPP_AA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.log")
+              predictors.matrix=dataPPP_AA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.log")
 
 
 ## -- proteins PPP log quant ----
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
-              predictors.matrix=dataPPP_AA$proteins.log.quant, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.log.quant")
+              predictors.matrix=dataPPP_AA$proteins.log.quant, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.log.quant")
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
-              predictors.matrix=dataPPP_AA$proteins.log.quant, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.PPP_AA.log.quant")
+              predictors.matrix=dataPPP_AA$proteins.log.quant, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.PPP_AA.log.quant")
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
-              predictors.matrix=dataPPP_AA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.log.quant")
+              predictors.matrix=dataPPP_AA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.log.quant")
 
 
 
@@ -626,40 +632,40 @@ save(dataPPP_AA.imputed,file=file_path)
 
 
 dataset_dir = "data.PPP_AA.imputed"
-output_dir = paste(output_base, dataset_dir, sep = "/")
+output_dir_base = paste(output_base, dataset_dir, sep = "/")
 
 
-unlink(output_dir, recursive = T, force = FALSE)
-dir.create(output_dir, recursive=T)
-
-createDataset(response.matrix=dataPPP_AA.imputed$metabolites, 
-              predictors.matrix=dataPPP_AA.imputed$proteins, order=1, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.imputed")
-
+unlink(output_dir_base, recursive = T, force = FALSE)
+dir.create(output_dir_base, recursive=T)
 
 createDataset(response.matrix=dataPPP_AA.imputed$metabolites, 
-              predictors.matrix=dataPPP_AA.imputed$proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.PPP_AA.imputed")
+              predictors.matrix=dataPPP_AA.imputed$proteins, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.imputed")
 
 
 createDataset(response.matrix=dataPPP_AA.imputed$metabolites, 
-              predictors.matrix=dataPPP_AA.imputed$proteins, order=3, include.metabolites=F, output_dir=output_dir, preffix="data.PPP_AA.imputed")
+              predictors.matrix=dataPPP_AA.imputed$proteins, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.PPP_AA.imputed")
+
+
+createDataset(response.matrix=dataPPP_AA.imputed$metabolites, 
+              predictors.matrix=dataPPP_AA.imputed$proteins, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.imputed")
 
 
 
 ## -- TCA & AA ---- 
 
 dataset_dir = "data.TCA_AA.imputed"
-output_dir = paste(output_base, dataset_dir, sep = "/")
+output_dir_base = paste(output_base, dataset_dir, sep = "/")
 
 common = intersect(rownames(dataAA$proteins), rownames(dataTCA$proteins))
-unlink(output_dir, recursive = T, force = FALSE)
-dir.create(output_dir, recursive=T)
+unlink(output_dir_base, recursive = T, force = FALSE)
+dir.create(output_dir_base, recursive=T)
 
 
 common_metabolites = cbind(dataTCA$metabolites[match(common, rownames(dataTCA$metabolites)),], dataAA$metabolites[match(common, rownames(dataAA$metabolites)),])
 common_proteins = dataTCA$proteins[match(rownames(common_metabolites), rownames(dataTCA$proteins)),]
 
 createDataset(response.matrix=common_metabolites,
-              predictors.matrix=common_proteins, order=2, include.metabolites=T, output_dir=output_dir, preffix="data.TCA_AA")
+              predictors.matrix=common_proteins, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.TCA_AA")
 
 
 
