@@ -217,16 +217,19 @@ all_final_models$normalization[grep(pattern="log.quant", x=all_final_models$spec
 all_final_models$normalization = factor(all_final_models$normalization)
 
 
-file_name = paste("all_final_models", fun_name, "RData", sep=".")
+file_name = paste("all_final_models", fun_name, "RData", sep=".") # metabolite predictions based on ML approaches
 file_path = paste(output_dir, file_name, sep="/")
 save(all_final_models, file=file_path)
 
+file_name = paste("file.list", fun_name, "RData", sep=".") # metabolite predictions based on ML approaches
+file_path = paste(output_dir, file_name, sep="/")
+save(file.list, file=file_path)
 
-tmp = file.list[[2]]
+
+tmp = file.list[[2]] #some of sample names are not annotated, some algorithms did not keep rownames in their model matrix
 tmp <- tmp[tmp$model == "glmStepAICModel",] %>% 
   dplyr::select(knockout) %>%
   mutate(n = 1:length(knockout))
-
 
 predicted.metabolites.long <- all_final_models %>% 
   filter(isImputed == 0, metabolite != "Glu") %>%
@@ -236,12 +239,10 @@ predicted.metabolites.long <- all_final_models %>%
   filter(Rsquared == max(Rsquared,na.rm = T))
 
 
-
 predicted.metabolites.long$knockout_name <- tmp$knockout[match(predicted.metabolites.long$knockout, tmp$n)]
 predicted.metabolites.long$knockout_name[which(is.na(predicted.metabolites.long$knockout_name))] <- predicted.metabolites.long$knockout[which(is.na(predicted.metabolites.long$knockout_name))]
 
 predicted.metabolites.long$knockout <- predicted.metabolites.long$knockout_name
-
 
 
 predicted.metabolites <- predicted.metabolites.long %>%
@@ -279,6 +280,7 @@ cor.matrix[lower.tri(cor.matrix)] <- NA
 diag(cor.matrix) <- NA
 
 
+###plotting as network -------------------
 
 toPlot <- melt(cor.matrix)
 toPlot$X1 <-  factor(toPlot$X1, levels =  metabolites.cl$labels[metabolites.cl$order])
@@ -289,7 +291,7 @@ ggplot(toPlot, aes(x=X1, y=X2, size=abs(value))) +
 
 
 
-###plotting as network -------------------
+
 
 # plotting graph -----------------
 library(GGally)
@@ -347,7 +349,9 @@ metabolite.graph_dataset.f <- metabolite.graph_dataset
 
 metabolites.tmp <- data.frame(id = unique(c(unique(as.vector(t(met.graph_dataset[,c(1,2)]))), as.character(kinase.graph_dataset.f$to))))
 metabolites.tmp$type = "metabolite"
-metabolites.tmp$node_name = metabolite2iMM904$official_name[match(metabolites.tmp$id, metabolite2iMM904$id)]
+metabolites.tmp$node_name = sub(pattern = "-L", 
+                                x = toupper(metabolite2iMM904$model_name[match(metabolites.tmp$id, metabolite2iMM904$id)]),
+                                replacement = "")
 
 # 
 kinases.tmp <- data.frame(id = unique(kinase.graph_dataset.f$from),
@@ -365,6 +369,7 @@ kinases2.tmp <- data.frame(id = unique(metabolite.graph_dataset.f$from),
                           node_name = exp_metadata$gene[match(unique(metabolite.graph_dataset.f$from), exp_metadata$ORF)])
 
 
+
 nodes2 <- rbind.data.frame(metabolites2.tmp, kinases2.tmp)
 nodes2 <- nodes2 %>% filter(!(id %in% c("G6P...F6P", "X2...3.PG")))
 #write.table(x = nodes2, file = "./paper/figures/nodes2_annotation.tsv", sep = "\t", quote = F, row.names = F, col.names = F)
@@ -374,6 +379,14 @@ edges2 <- edges2 %>% filter(!(from  %in% c("G6P...F6P", "X2...3.PG" )), !(to  %i
 
 
 net2 <- graph_from_data_frame(vertices = nodes2, d=edges2, directed=T) 
+
+
+nodes1 <- rbind.data.frame(metabolites.tmp, kinases.tmp)
+nodes1 <- nodes1 %>% filter(!(id %in% c("G6P...F6P", "X2...3.PG")))
+edges1 <- rbind.data.frame(met.graph_dataset, kinase.graph_dataset.f) 
+edges1 <- edges1 %>% filter(!(from  %in% c("G6P...F6P", "X2...3.PG" )), !(to  %in% c("G6P...F6P", "X2...3.PG")))
+
+net1 <- graph_from_data_frame(vertices = nodes1, d=edges1, directed=T) 
 
 # #net <- graph_from_data_frame( d=edges, directed=T) 
 # colrs <- c( "tomato", "gold")
@@ -397,42 +410,41 @@ kinase.effects <- edges2 %>%
   group_by(from) %>%
   summarise(node_score=sum(abs(weight)))
 
-perturbation.effects <- edges2 %>% 
+perturbation.effects <- edges1 %>% 
   filter(type != "met->met") %>% 
   group_by(to) %>% 
-  summarise(node_score=sum(abs(weight)))
+  summarise(node_score=sum(abs(weight)),
+            degree = n())
 
-V(net2)$color <- colrs[as.numeric(as.factor(V(net2)$type))]
-V(net2)$shape <- c("square", "circle")[as.numeric(as.factor(V(net2)$type))]
+# V(net2)$color <- colrs[as.numeric(as.factor(V(net2)$type))]
+# V(net2)$shape <- c("square", "circle")[as.numeric(as.factor(V(net2)$type))]
 #V(net2)$effect <- kinase.effects$node_score[match(V(net2)$name, kinase.effects$from)]
 #V(net2)$effect[is.na(V(net2)$effect)] <- 0
 #V(net2)$perturbation_effect <- perturbation.effects$node_score[match(V(net2)$name, perturbation.effects$to)]
 
-
-E(net2)$lsize = 1
-E(net2)$lsize[E(net2)$type == "met->met"] <- as.numeric(cut(abs(E(net2)$weight[E(net2)$type == "met->met"]),
-                                                            breaks = c(0.3, 0.45, 0.75,1)))
-
-E(net2)$lsize[E(net2)$type != "met->met"] <- as.numeric(cut(abs(E(net2)$weight[E(net2)$type != "met->met"]), 
-                                                        breaks = qnorm(c(0.5, 1-0.05/2, 1-0.01/2, 1))))
-E(net2)$regulation <- NA
-E(net2)$regulation[E(net2)$type != "met->met"] = ifelse(E(net2)$weight[E(net2)$type != "met->met"] > 0 , "pos", "neg")
-
-E(net2)$correlation <- NA
-E(net2)$correlation[E(net2)$type == "met->met"] = ifelse(E(net2)$weight[E(net2)$type == "met->met"] > 0 , "pos", "neg")
-
-
-file_name = paste("predictions_regression2", fun_name, "graphml", sep=".")
-file_path = paste(output_dir, file_name, sep="/")
-write.graph(net2, file=file_path, format="graphml")
+# 
+# E(net2)$lsize = 1
+# E(net2)$lsize[E(net2)$type == "met->met"] <- as.numeric(cut(abs(E(net2)$weight[E(net2)$type == "met->met"]),
+#                                                             breaks = c(0.3, 0.45, 0.75,1)))
+# 
+# E(net2)$lsize[E(net2)$type != "met->met"] <- as.numeric(cut(abs(E(net2)$weight[E(net2)$type != "met->met"]), 
+#                                                         breaks = qnorm(c(0.5, 1-0.05/2, 1-0.01/2, 1))))
+# E(net2)$regulation <- NA
+# E(net2)$regulation[E(net2)$type != "met->met"] = ifelse(E(net2)$weight[E(net2)$type != "met->met"] > 0 , "pos", "neg")
+# 
+# E(net2)$correlation <- NA
+# E(net2)$correlation[E(net2)$type == "met->met"] = ifelse(E(net2)$weight[E(net2)$type == "met->met"] > 0 , "pos", "neg")
+# 
+# 
+# file_name = paste("predictions_regression2", fun_name, "graphml", sep=".")
+# file_path = paste(output_dir, file_name, sep="/")
+# write.graph(net2, file=file_path, format="graphml")
 
 
 
 node_properties <- data.frame(node = V(net2)$name,
                               type = V(net2)$type,
                               node_name = V(net2)$node_name)
-
-
 
 node_properties$node_score  = kinase.effects$node_score[match(node_properties$node, kinase.effects$from)]
 node_properties$node_size = as.numeric(cut(node_properties$node_score, breaks = c(0, 2, 5, 10, 30)))
@@ -454,15 +466,64 @@ set.vertex.attribute(B, "node_size", node_properties$node_size[match(B %v% "vert
 set.edge.attribute(B, "effect", ifelse(B %e% "weight" < 0, "red", "green"))
 set.edge.attribute(B, "line_type", ifelse((as.factor(B %e% "type") == "met->met"), 2, 1))
 
+tmp.sizes <- B %e% "weight"
+
+tmp.sizes[B %e% "type" != "met->met"] <- as.numeric(cut(abs(tmp.sizes[B %e% "type" != "met->met"]),breaks = qnorm(c(0.5, 1-0.05/2, 1-0.01/2, 1))))
+tmp.sizes[B %e% "type" == "met->met"] <- 1
+set.edge.attribute(B, "edge_size", (2^tmp.sizes)/5)
 
 p.kinase_picture <- ggnet2(B, label.size = 3, edge.alpha = 1,
        label = T, 
        color = "color",
+       edge.size = "edge_size",
        node.size = "node_size",
        edge.color = "effect",
        node.label = "label",
        edge.lty ="line_type" )
-       
+
+
+
+## ---  kinase picture ---- 
+
+node_properties1 <- data.frame(node = V(net1)$name,
+                              type = V(net1)$type,
+                              node_name = V(net1)$node_name)
+
+node_properties1$node_score  = perturbation.effects$degree[match(node_properties1$node, perturbation.effects$to )]
+node_properties1$node_size = as.numeric(cut(node_properties1$node_score,  breaks = c(0,3,10,30)))
+node_properties1$node_size[is.na(node_properties1$node_size)] <- 1
+node_properties1$node_size <- 2^(node_properties1$node_size)
+
+#B <- network(get.adjacency(net2, attr="weight"))
+B1 <- network(edges1,matrix.type='edgelist', ignore.eval = FALSE)
+
+#node attributes
+B1 %v% "type" <- as.character(node_properties1$type[match(B1 %v% "vertex.names", node_properties1$node)])
+colors <- c("cyan", "orange")
+set.vertex.attribute(B1, "color", colors[as.integer(as.factor(B1 %v% "type"))])
+set.vertex.attribute(B1, "label", as.character(node_properties1$node_name[match(B1 %v% "vertex.names", node_properties1$node)]))
+set.vertex.attribute(B1, "perturbation", node_properties1$node_score[match(B1 %v% "vertex.names", node_properties1$node)])
+set.vertex.attribute(B1, "node_size", node_properties1$node_size[match(B1 %v% "vertex.names", node_properties1$node)])
+
+#edge attributes
+set.edge.attribute(B1, "effect", ifelse(B1 %e% "weight" < 0, "red", "green"))
+set.edge.attribute(B1, "line_type", ifelse((as.factor(B1 %e% "type") == "met->met"), 2, 1))
+
+tmp.sizes <- B1 %e% "weight"
+
+tmp.sizes[B1 %e% "type" != "met->met"] <- as.numeric(cut(abs(tmp.sizes[B1 %e% "type" != "met->met"]),breaks = qnorm(c(0.5, 1-0.05/2, 1-0.01/2, 1))))
+tmp.sizes[B1 %e% "type" == "met->met"] <- 1
+set.edge.attribute(B1, "edge_size", (2^tmp.sizes)/5)
+
+p.metabolite_picture <- ggnet2(B1, label.size = 3, edge.alpha = 1,
+                           label = T, 
+                           color = "color",
+                           edge.size = "edge_size",
+                           node.size = "node_size",
+                           edge.color = "effect",
+                           node.label = "label",
+                           edge.lty ="line_type" )
+
 
 
 # load("./R/objects/KEGG.pathways.analysis1.RData")
