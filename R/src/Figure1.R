@@ -275,6 +275,55 @@ p.irt <- ggplot(toPlot, aes(x=aquisition_date.str, y=RT/60)) +
   scale_colour_tableau() +
   theme(legend.position="none",
         aspect.ratio = 5/8)
+p.irt
+toPlot <- toPlot %>% 
+  group_by(filename) %>%
+  mutate(iRT = (RT - sort(RT)[1])/(max(RT, na.rm = T) - sort(RT)[1]))
+
+# p.irt.normalized <- ggplot(toPlot, aes(x=aquisition_date.str, y=iRT)) +
+#   geom_point(aes(colour=Sequence)) +
+#   geom_vline(data = toPlot[grepl("mix", toPlot$filename, ignore.case = T),], 
+#              aes(xintercept=as.numeric(aquisition_date.str)), linetype=1, alpha=0.75, colour="darkgrey") +
+#   xlab("Acquisition date") +
+#   ylab("Retention time, min") +
+#   scale_colour_tableau() +
+#   theme(legend.position="none",
+#         aspect.ratio = 5/8)
+
+forModels <- toPlot %>% 
+  group_by(Sequence) %>% 
+  mutate(Z_iRT = (iRT - mean(iRT, na.rm = T))/sd(iRT, na.rm = T),
+         toRemove  = ifelse(abs(Z_iRT) > 2, 1, 0)) %>%
+  filter(toRemove != 1) %>%
+  group_by(Sequence) %>%
+  summarize(iRT_model = mean(iRT, na.rm=T))
+
+View(forModels)
+tmp.irt <- ddply(toPlot, .(filename), 
+      .fun = function(x) {
+        z <<- x
+        #x = toPlot[toPlot$filename == "./data.raw/KL_St_Mix_11.mzML",]
+        tmp = data.frame(RT  = x$RT, iRT_model = forModels$iRT_model[match(x$Sequence, forModels$Sequence)])
+        
+        lm.fit = lm(iRT_model~RT, data = na.omit(tmp))
+        tmp.dataset = data.frame(RT = x$RT)
+        x$iRT_recalibrated = predict(lm.fit, tmp.dataset)
+        return(x)
+      })  
+
+
+library(scales)
+p.irt.recalibrated <- ggplot(tmp.irt, aes(x=aquisition_date.str, y=iRT_recalibrated)) +
+  geom_point(aes(colour=Sequence)) +
+  geom_vline(data = toPlot[grepl("mix", toPlot$filename, ignore.case = T),], 
+             aes(xintercept=as.numeric(aquisition_date.str)), linetype=1, alpha=0.75, colour="darkgrey") +
+  xlab("Acquisition date") +
+  ylab("Relative retention time") +
+  scale_y_date()
+  scale_colour_tableau() +
+  theme(legend.position="none",
+        aspect.ratio = 5/8)
+
 
 # Batch Effects ---------------------
 load("./R/objects/peptides.matrix.RData")
