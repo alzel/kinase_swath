@@ -21,7 +21,7 @@ orf2name$gene_name[orf2name$gene_name ==""] = orf2name$ORF[orf2name$gene_name ==
 
 fun_name = "models_summary2"
 
-pattern.p = "data.(\\w+).(.*?).([1,3]+).([0-9]+).([pca.p]+).models.RData$"
+pattern.p = "data.(\\w+).(.*?).([1,3,5]+).([0-9]+).([pca.p]+).models.RData$"
 filesToProcess = dir(path=input_path, pattern = pattern.p, recursive=F)
 matches = stringr::str_match_all(pattern=pattern.p, filesToProcess)
 
@@ -136,7 +136,10 @@ read_models.caret.predict = function(x) {
   file_name = paste(input_path, x[[1]], sep="/") 
   my_models = get(load(file_name))
   
-  models = my_models$models[-12]
+  
+  bad_idx <- which(names(my_models$models) == "rfModel") #removing random forest, because of predict method
+  
+  models = my_models$models[-bad_idx]
   input_data = my_models$input_data[,-1]
   trans.x <- my_models$trans.x
   new_data = NULL
@@ -165,7 +168,8 @@ read_models.caret.predict = function(x) {
   
   models.list = list()
   
-  #train_idx = which(unlist(lapply(lapply(models, class), function(x) x == "train")) == TRUE)
+  train_idx = which(unlist(lapply(lapply(models, class), function(x) x == "train")) == TRUE)
+  models = models[train_idx]
   #getting model predictions
   predictions <- predict(models, as.data.frame(new_data))
   tmp.m = matrix(unlist(predictions), ncol = length(predictions))
@@ -178,11 +182,11 @@ read_models.caret.predict = function(x) {
   t <- resamples(models)
   t.long = reshape2::melt(t$values)
   t.long.summary.wide <- t.long %>% 
-    separate(variable, c("model","stats"), sep="~") %>% 
-    group_by(model, stats) %>%
+    separate(variable, c("model","stats"), sep="~")  %>% 
+    group_by(model, stats) %>% 
       summarise(mean_stats = mean(value, na.rm=T),
-                median_stats = median(value, na.rm=T)) %>% 
-      select(model, stats, mean_stats) %>%
+                median_stats = median(value, na.rm=T)) %>%
+      dplyr::select(model, stats, mean_stats) %>%
       spread(stats, mean_stats)
   
   t.long.summary.wide$is.minRMSE <- ifelse(t.long.summary.wide$RMSE == min(t.long.summary.wide$RMSE),1,0)
@@ -199,6 +203,7 @@ read_models.caret.predict = function(x) {
   table$file =  x[[1]]
   return(table)
 }
+
 file.list = lapply(matches, FUN=read_models.caret.predict)
 
 all_final_models = do.call(rbind.data.frame, file.list)
@@ -212,19 +217,37 @@ all_final_models$normalization[grep(pattern="log.quant", x=all_final_models$spec
 all_final_models$normalization = factor(all_final_models$normalization)
 
 
+file_name = paste("all_final_models", fun_name, "RData", sep=".")
+file_path = paste(output_dir, file_name, sep="/")
+save(all_final_models, file=file_path)
+
+
+tmp = file.list[[2]]
+tmp <- tmp[tmp$model == "glmStepAICModel",] %>% 
+  dplyr::select(knockout) %>%
+  mutate(n = 1:length(knockout))
+
+
 predicted.metabolites.long <- all_final_models %>% 
-  filter(isImputed == 0, degree==1, !(model %in% c("earthModel", "rpartModel")), metabolite != "Glu") %>%
-  group_by(metabolite, normalization) %>%
-  #group_by(metabolite) %>%
-    filter(RMSE == min(RMSE,na.rm = T)) %>%
+  filter(isImputed == 0, metabolite != "Glu") %>%
+  group_by(metabolite, normalization, degree, preprocessing) %>%
+  filter(RMSE == min(RMSE,na.rm = T)) %>%
   group_by(metabolite) %>%
   filter(Rsquared == max(Rsquared,na.rm = T))
 
+
+
+predicted.metabolites.long$knockout_name <- tmp$knockout[match(predicted.metabolites.long$knockout, tmp$n)]
+predicted.metabolites.long$knockout_name[which(is.na(predicted.metabolites.long$knockout_name))] <- predicted.metabolites.long$knockout[which(is.na(predicted.metabolites.long$knockout_name))]
+
+predicted.metabolites.long$knockout <- predicted.metabolites.long$knockout_name
+
+
+
 predicted.metabolites <- predicted.metabolites.long %>%
-  select(pred, knockout, metabolite) %>% 
+  dplyr::select(pred, knockout, metabolite) %>% 
   ungroup() %>%
   spread(knockout, pred)
-
 
 
 #dcast(predicted.metabolites, formula = "knockout ~ metabolite", value.var = "pred")
@@ -234,6 +257,7 @@ rownames(predicted.metabolite.matrix) <- predicted.metabolites$metabolite
 pheatmap(predicted.metabolite.matrix,  color = colorRampPalette(c("navy", "white", "firebrick3"))(50)) 
          
 predicted.metabolites.long %>% 
+  filter(!(knockout %in% c("none", "WT"))) %>%
   group_by(knockout) %>%
   summarize(min_metabolite = metabolite[which.min(pred)],
             max_metabolite = metabolite[which.max(pred)])
@@ -250,7 +274,7 @@ ggplot() +
                        midpoint = 0, limit = c(-4,5),  
                        name="predicted Z-score")
 
-cor.matrix <- cor(t(predicted.metabolite.matrix), method = "spearman")
+cor.matrix <- cor(t(predicted.metabolite.matrix))
 cor.matrix[lower.tri(cor.matrix)] <- NA
 diag(cor.matrix) <- NA
 
@@ -275,47 +299,47 @@ library(sna)
 met2met.dataset <- melt(cor.matrix)
 names(met2met.dataset) <- c("from", "to", "weight")
 met2met.dataset$type <- "met->met"
-cor_thr = 0.4
+cor_thr = 0.5
 met.graph_dataset <- na.omit(met2met.dataset[abs(met2met.dataset$weight) > cor_thr,])
 
 #selected_metabolites <- unique(as.vector(t(na.omit(met2met.dataset[met2met.dataset$weight > 0.25, c(1,2)]))))
+predicted.metabolite.matrix.f <- predicted.metabolite.matrix[,!(colnames(predicted.metabolite.matrix) %in% c("none", "WT"))]
 
-min.max.kinases <- melt(predicted.metabolite.matrix) %>% 
+min.max.kinases <- melt(predicted.metabolite.matrix.f) %>% 
   group_by(X2) %>%
   summarize(min.met = X1[which.min(value)],
             z_score.min = value[which.min(value)],
             max.met = X1[which.max(value)],
             z_score.max = value[which.max(value)])
 
-min.max.metabolites <- melt(predicted.metabolite.matrix) %>% 
+min.max.metabolites <- melt(predicted.metabolite.matrix.f) %>% 
   group_by(X1) %>%
   summarize(min.kinase = X2[which.min(value)],
             z_score.min = value[which.min(value)],
             max.kinase = X2[which.max(value)],
             z_score.max = value[which.max(value)])
 
-
 kin_thr = 1.64
 
-kinase.graph_dataset.min <- min.max.kinases %>% select(X2, min.met, z_score.min)
+kinase.graph_dataset.min <- min.max.kinases %>% dplyr::select(X2, min.met, z_score.min)
 names(kinase.graph_dataset.min) <- c("from", "to", "weight")
 kinase.graph_dataset.min$type <- "kinase->met.min"
 
-kinase.graph_dataset.max <- min.max.kinases %>% select(X2, max.met, z_score.max)
+kinase.graph_dataset.max <- min.max.kinases %>% dplyr::select(X2, max.met, z_score.max)
 names(kinase.graph_dataset.max) <- c("from", "to", "weight")
 kinase.graph_dataset.max$type <- "kinase->met.max"
 
-metabolite.graph_dataset.min <- min.max.metabolites %>% select(min.kinase, X1, z_score.min)
+metabolite.graph_dataset.min <- min.max.metabolites %>% dplyr::select(min.kinase, X1, z_score.min)
 names(metabolite.graph_dataset.min) <- c("from", "to", "weight")
 metabolite.graph_dataset.min$type <- "kinase.min->met"
 
-metabolite.graph_dataset.max <- min.max.metabolites %>% select(max.kinase, X1, z_score.max)
+metabolite.graph_dataset.max <- min.max.metabolites %>% dplyr::select(max.kinase, X1, z_score.max)
 names(metabolite.graph_dataset.max) <- c("from", "to", "weight")
 metabolite.graph_dataset.max$type <- "kinase.max->met"
 
 
 kinase.graph_dataset <- rbind.data.frame(kinase.graph_dataset.max, kinase.graph_dataset.min)
-kinase.graph_dataset.f <- kinase.graph_dataset %>% filter(abs(weight) > kin_thr)
+#kinase.graph_dataset.f <- kinase.graph_dataset %>% filter(abs(weight) > kin_thr)
 
 metabolite.graph_dataset <- rbind.data.frame(metabolite.graph_dataset.max, metabolite.graph_dataset.min)
 #metabolite.graph_dataset.f <- metabolite.graph_dataset %>% filter(abs(weight) > kin_thr) 
@@ -325,9 +349,10 @@ metabolites.tmp <- data.frame(id = unique(c(unique(as.vector(t(met.graph_dataset
 metabolites.tmp$type = "metabolite"
 metabolites.tmp$node_name = metabolite2iMM904$official_name[match(metabolites.tmp$id, metabolite2iMM904$id)]
 
+# 
 kinases.tmp <- data.frame(id = unique(kinase.graph_dataset.f$from),
-                          type = "kinase",
-                          node_name = exp_metadata$gene[match(unique(kinase.graph_dataset.f$from), exp_metadata$ORF)])
+                         type = "kinase",
+                         node_name = exp_metadata$gene[match(unique(kinase.graph_dataset.f$from), exp_metadata$ORF)])
 
 metabolites2.tmp <- data.frame(id = unique(c(unique(as.vector(t(met.graph_dataset[,c(1,2)]))), as.character(metabolite.graph_dataset.f$to))))
 metabolites2.tmp$type = "metabolite"
@@ -340,33 +365,30 @@ kinases2.tmp <- data.frame(id = unique(metabolite.graph_dataset.f$from),
                           node_name = exp_metadata$gene[match(unique(metabolite.graph_dataset.f$from), exp_metadata$ORF)])
 
 
-nodes1 <- rbind.data.frame(metabolites.tmp, kinases.tmp)
-edges1 <- rbind.data.frame(met.graph_dataset, kinase.graph_dataset.f)
-net <- graph_from_data_frame(vertices = nodes1, d=edges1, directed=T)
-
-
 nodes2 <- rbind.data.frame(metabolites2.tmp, kinases2.tmp)
 nodes2 <- nodes2 %>% filter(!(id %in% c("G6P...F6P", "X2...3.PG")))
 #write.table(x = nodes2, file = "./paper/figures/nodes2_annotation.tsv", sep = "\t", quote = F, row.names = F, col.names = F)
 
 edges2 <- rbind.data.frame(met.graph_dataset, metabolite.graph_dataset.f)
 edges2 <- edges2 %>% filter(!(from  %in% c("G6P...F6P", "X2...3.PG" )), !(to  %in% c("G6P...F6P", "X2...3.PG")))
+
+
 net2 <- graph_from_data_frame(vertices = nodes2, d=edges2, directed=T) 
 
-#net <- graph_from_data_frame( d=edges, directed=T) 
-colrs <- c( "tomato", "gold")
-
-V(net)$color <- colrs[as.numeric(as.factor(V(net)$type))]
-V(net)$shape <- c("square", "circle")[as.numeric(as.factor(V(net)$type))]
-
-E(net)$lsize = 1
-E(net)$lsize[E(net)$type == "met->met"] <- as.numeric(cut_number(abs(E(net)$weight[E(net)$type == "met->met"]),5))
-E(net)$lsize[E(net)$type != "met->met"] <- as.numeric(cut_number(abs(E(net)$weight[E(net)$type != "met->met"]),5))
-
-
-file_name = paste("predictions_regression1", fun_name, "graphml", sep=".")
-file_path = paste(output_dir, file_name, sep="/")
-write.graph(net, file=file_path, format="graphml")
+# #net <- graph_from_data_frame( d=edges, directed=T) 
+# colrs <- c( "tomato", "gold")
+# 
+# V(net)$color <- colrs[as.numeric(as.factor(V(net)$type))]
+# V(net)$shape <- c("square", "circle")[as.numeric(as.factor(V(net)$type))]
+# 
+# E(net)$lsize = 1
+# E(net)$lsize[E(net)$type == "met->met"] <- as.numeric(cut_number(abs(E(net)$weight[E(net)$type == "met->met"]),5))
+# E(net)$lsize[E(net)$type != "met->met"] <- as.numeric(cut_number(abs(E(net)$weight[E(net)$type != "met->met"]),5))
+# 
+# 
+# file_name = paste("predictions_regression1", fun_name, "graphml", sep=".")
+# file_path = paste(output_dir, file_name, sep="/")
+# write.graph(net, file=file_path, format="graphml")
 
 colrs <- c( "tomato", "gold")
 
@@ -380,13 +402,11 @@ perturbation.effects <- edges2 %>%
   group_by(to) %>% 
   summarise(node_score=sum(abs(weight)))
 
-
 V(net2)$color <- colrs[as.numeric(as.factor(V(net2)$type))]
 V(net2)$shape <- c("square", "circle")[as.numeric(as.factor(V(net2)$type))]
 #V(net2)$effect <- kinase.effects$node_score[match(V(net2)$name, kinase.effects$from)]
 #V(net2)$effect[is.na(V(net2)$effect)] <- 0
 #V(net2)$perturbation_effect <- perturbation.effects$node_score[match(V(net2)$name, perturbation.effects$to)]
-
 
 
 E(net2)$lsize = 1
@@ -407,48 +427,42 @@ file_path = paste(output_dir, file_name, sep="/")
 write.graph(net2, file=file_path, format="graphml")
 
 
-plot(net2, vertex.label.dist=0, edge.arrow.size=.08,
-     edge.curved=0, vertex.size=5,
-     vertex.color=V(net2)$color, vertex.frame.color="white",
-     vertex.label=V(net2)$node_name, vertex.label.color="black",
-     vertex.shape = V(net2)$shape,
-     vertex.label.cex=.6)
-     
+
+node_properties <- data.frame(node = V(net2)$name,
+                              type = V(net2)$type,
+                              node_name = V(net2)$node_name)
 
 
 
-node_sizes <- data.frame(node = V(net)$name,
-                         size = V(net)$size)
+node_properties$node_score  = kinase.effects$node_score[match(node_properties$node, kinase.effects$from)]
+node_properties$node_size = as.numeric(cut(node_properties$node_score, breaks = c(0, 2, 5, 10, 30)))
+node_properties$node_size[is.na(node_properties$node_size)] <- 1
+node_properties$node_size <- 2^(node_properties$node_size)
+  
+#B <- network(get.adjacency(net2, attr="weight"))
+B <- network(edges2,matrix.type='edgelist', ignore.eval = FALSE)
+
+#node attributes
+B %v% "type" <- as.character(node_properties$type[match(B %v% "vertex.names", node_properties$node)])
+colors <- c("cyan", "orange")
+set.vertex.attribute(B, "color", colors[as.integer(as.factor(B %v% "type"))])
+set.vertex.attribute(B, "label", as.character(node_properties$node_name[match(B %v% "vertex.names", node_properties$node)]))
+set.vertex.attribute(B, "perturbation", node_properties$node_score[match(B %v% "vertex.names", node_properties$node)])
+set.vertex.attribute(B, "node_size", node_properties$node_size[match(B %v% "vertex.names", node_properties$node)])
+
+#edge attributes
+set.edge.attribute(B, "effect", ifelse(B %e% "weight" < 0, "red", "green"))
+set.edge.attribute(B, "line_type", ifelse((as.factor(B %e% "type") == "met->met"), 2, 1))
 
 
-B = network(get.adjacency(net), directed = TRUE)
-
-B %v% "color" = V(net)$color
-B %v% "shape" = V(net)$type
-B %v% "label" = V(net)$node_name
-
-
-#B.sizes = node_sizes$size[match(B.nodes, node_sizes$node)]
-#B %v% "size" = B.sizes
-
-B.weights = data.frame(type = E(net)$type)
-B.weights$weights[B.weights$type == "met->met"] <- as.numeric(cut_number(abs(E(net)$weight[E(net)$type == "met->met"]),5))
-B.weights$weights[B.weights$type != "met->met"] <- as.numeric(cut_number(abs(E(net)$weight[E(net)$type != "met->met"]),5))
-
-
-B %e% "effect" <- ifelse(E(net)$weight>0, "red", "green") 
-B %e% "weight" <- B.weights$weights/3
-B %e% "ltype"  <- ifelse(E(net)$type == "met->met", 1,2)
-
-p.graph = ggnet2(B, label.size = 4, edge.alpha = 1,
-                 #size = "size", 
-                 label = T, 
-                 color = "color", 
-                 shape = "shape",
-                 edge.color = "effect",
-                 node.label = "label",
-                 edge.size = "weight",
-                 edge.lty = "ltype")
+p.kinase_picture <- ggnet2(B, label.size = 3, edge.alpha = 1,
+       label = T, 
+       color = "color",
+       node.size = "node_size",
+       edge.color = "effect",
+       node.label = "label",
+       edge.lty ="line_type" )
+       
 
 
 # load("./R/objects/KEGG.pathways.analysis1.RData")

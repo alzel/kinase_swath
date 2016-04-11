@@ -476,6 +476,9 @@ createDataset(response.matrix=dataTCA$metabolites,
 createDataset(response.matrix=dataTCA$metabolites, 
               predictors.matrix=dataTCA$proteins, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA")
 
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins, order=5, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA")
+
 ## -- TCA proteins log ----
 createDataset(response.matrix=dataTCA$metabolites, 
               predictors.matrix=dataTCA$proteins.log, order=1, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.log")
@@ -485,6 +488,9 @@ createDataset(response.matrix=dataTCA$metabolites,
 
 createDataset(response.matrix=dataTCA$metabolites, 
               predictors.matrix=dataTCA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.log")
+
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins.log, order=5, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.log")
 
 ## -- TCA proteins log quant ----
 createDataset(response.matrix=dataTCA$metabolites, 
@@ -496,6 +502,8 @@ createDataset(response.matrix=dataTCA$metabolites,
 createDataset(response.matrix=dataTCA$metabolites, 
               predictors.matrix=dataTCA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.log.quant")
 
+createDataset(response.matrix=dataTCA$metabolites, 
+              predictors.matrix=dataTCA$proteins.log.quant, order=5, include.metabolites=F, output_dir=output_dir_base, preffix="data.TCA.log.quant")
 
 
 ## -- TCA imputed ----
@@ -539,9 +547,11 @@ createDataset(response.matrix=dataAA$metabolites,
 createDataset(response.matrix=dataAA$metabolites, 
               predictors.matrix=dataAA$proteins, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.AA")
 
-
 createDataset(response.matrix=dataAA$metabolites, 
               predictors.matrix=dataAA$proteins, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA")
+
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins, order=5, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA")
 
 ## -- AA proteins log ----
 
@@ -554,6 +564,10 @@ createDataset(response.matrix=dataAA$metabolites,
 createDataset(response.matrix=dataAA$metabolites, 
               predictors.matrix=dataAA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA.log")
 
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins.log, order=5, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA.log")
+
+
 ## -- AA proteins log quant ----
 
 createDataset(response.matrix=dataAA$metabolites, 
@@ -565,6 +579,8 @@ createDataset(response.matrix=dataAA$metabolites,
 createDataset(response.matrix=dataAA$metabolites, 
               predictors.matrix=dataAA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA.log.quant")
 
+createDataset(response.matrix=dataAA$metabolites, 
+              predictors.matrix=dataAA$proteins.log.quant, order=5, include.metabolites=F, output_dir=output_dir_base, preffix="data.AA.log.quant")
 
 
 
@@ -593,6 +609,10 @@ createDataset(response.matrix=dataPPP_AA$metabolites,
 createDataset(response.matrix=dataPPP_AA$metabolites, 
               predictors.matrix=dataPPP_AA$proteins, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA")
 
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins, order=5, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA")
+
+
 ## -- proteins PPP log ----
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
@@ -603,6 +623,10 @@ createDataset(response.matrix=dataPPP_AA$metabolites,
 
 createDataset(response.matrix=dataPPP_AA$metabolites, 
               predictors.matrix=dataPPP_AA$proteins.log, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.log")
+
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins.log, order=5, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.log")
+
 
 
 ## -- proteins PPP log quant ----
@@ -616,6 +640,8 @@ createDataset(response.matrix=dataPPP_AA$metabolites,
 createDataset(response.matrix=dataPPP_AA$metabolites, 
               predictors.matrix=dataPPP_AA$proteins.log.quant, order=3, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.log.quant")
 
+createDataset(response.matrix=dataPPP_AA$metabolites, 
+              predictors.matrix=dataPPP_AA$proteins.log.quant, order=5, include.metabolites=F, output_dir=output_dir_base, preffix="data.PPP_AA.log.quant")
 
 
 
@@ -668,8 +694,8 @@ createDataset(response.matrix=common_metabolites,
               predictors.matrix=common_proteins, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.TCA_AA")
 
 
-
-
+load("./results/2016-02-24/data.AA/data.AA.log.quant.citrulline.5.0.RData")
+View(tmp.df)
 
 
 
