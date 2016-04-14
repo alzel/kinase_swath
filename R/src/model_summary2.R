@@ -130,6 +130,8 @@ proteins.log = t(my_means(proteins.matrix.combat))
 
 
 read_models.caret.predict = function(x) {
+  
+  x = matches[[16]]
   z <<- x
   x = z
   
@@ -143,6 +145,7 @@ read_models.caret.predict = function(x) {
   input_data = my_models$input_data[,-1]
   trans.x <- my_models$trans.x
   new_data = NULL
+  
   
   if (grepl(pattern = "log.quant", x = x[[1]])) {
     message("log.quant")
@@ -172,6 +175,7 @@ read_models.caret.predict = function(x) {
   models = models[train_idx]
   #getting model predictions
   predictions <- predict(models, as.data.frame(new_data))
+
   tmp.m = matrix(unlist(predictions), ncol = length(predictions))
   colnames(tmp.m) <-  names(predictions)
   rownames(tmp.m) <-  names(predictions[[1]])
@@ -557,7 +561,140 @@ p.metabolite_picture <- ggnet2(B1, label.size = 3, edge.alpha = 1,
 # pheatmap(results.tmp)
 
 
+#### getting important coefficients 
+
+
+get_predictors <- function(x, trans.x, top = 5) {
+  
+#   dots.list <- as.list(...)
+#   trans.x <- dots.list$trans.x
+#   top <- dots.list$top
+  
+  
+  predictors <- unique(x$id)
+  expanded.model = NULL
+  
+  if (!is.null(trans.x) & any(grepl(x = as.character(predictors), pattern = "PC\\d+", perl=T))) {  
+    tmp.long <- reshape2::melt(trans.x$rotation[,predictors], id.var="rownames")
+    
+    expanded.model <- tmp.long %>%  # selecting per component top loadings
+      arrange(Var2) %>%
+      group_by(Var2) %>%
+      arrange(desc(abs(value))) %>% 
+      filter(row_number() <= top)
+    expanded.model
+  } else {
+    expanded.model <- data.frame(Var1 = as.character(predictors), Var2 = NA, value = NA)
+  }
+  
+  names(expanded.model) <- c("gene", "predictor", "loading")
+  return(as.data.frame(left_join(x, expanded.model, by =  c("id" = "predictor"))))
+}
 
 
 
+read_models.caret.varIMP = function(x) {
+  
+  zzz <<- x
+  
+  x  <- zzz
+  
+  message(paste("processing model ", x[[1]])) 
+  file_name = paste(input_path, x[[1]], sep="/") 
+  my_models = get(load(file_name))
+  
+  bad_idx <- which(names(my_models$models) == "rfModel") #removing random forest, because of predict method
+  
+  models = my_models$models[-bad_idx]
+  input_data = my_models$input_data[,-1]
+  trans.x <- my_models$trans.x
 
+  
+  models.list = list()
+  
+  train_idx = which(unlist(lapply(lapply(models, class), function(x) x == "train")) == TRUE)
+  
+  models = models[train_idx]
+  
+  suck_models =  c()
+  get_importance <- function(i) {
+    
+    x <- models[[i]]
+    
+    out <- tryCatch({
+      tmp <- varImp(x)
+      
+    }, error = function(e) {
+      message(paste("Model sucks!", names(models[i])))
+      suck_models <- c(suck_models,i)
+      return(NULL)
+    }, finally = {
+      message(paste("processed", names(models[i])))
+    })
+    
+    return(out)
+  }
+  
+  
+  #getting important variables
+  seq(models)
+  tmp.importance <- lapply(seq(models), get_importance)
+  
+  good_models <- which(!unlist(lapply(tmp.importance, is.null)))
+  models <- models[good_models]
+  tmp.importance <- tmp.importance[good_models]
+  names(tmp.importance) <- names(models)
+  
+  
+  
+  
+  #tmp.importance <- lapply(models, varImp)
+  
+  
+  
+  important.variables <- lapply(seq(tmp.importance), 
+                               function(i) {
+                                 x = tmp.importance[[i]]
+                                 tmp <- data.frame(id = rownames(x$importance), 
+                                                   importance = x$importance, 
+                                                   metric = x$model, 
+                                                   algorithm = names(tmp.importance[i]))
+                                          }) 
+  
+  
+  table <- lapply(important.variables, get_predictors, top = 5, trans.x = trans.x) %>% bind_rows()
+  
+
+  table$dataset = x[[2]]
+  table$metabolite  = x[[3]]
+  table$isImputed = ifelse(length(grep(pattern="imputed", x=x[[3]])) == 0, 0, 1)
+  table$degree  = x[[4]]
+  table$ismetIncluded  = x[[5]]
+  table$preprocessing = x[[6]]
+  table$file =  x[[1]]
+  return(table)
+}
+
+library(dplyr)
+library(reshape2)
+
+file.list.importance = lapply(matches, FUN=read_models.caret.varIMP)
+
+
+all_final_models.importance = bind_rows(file.list.importance)
+all_final_models.importance$species <- all_final_models.importance$metabolite
+all_final_models.importance$metabolite = sub(x=all_final_models.importance$metabolite, pattern="log.quant.(.*)", replacement="\\1")
+all_final_models.importance$metabolite = sub(x=all_final_models.importance$metabolite, pattern="log.(.*)", replacement="\\1")
+
+all_final_models.importance$normalization = "bc"
+all_final_models.importance$normalization[grep(pattern="log", x=all_final_models.importance$species)] = "log"
+all_final_models.importance$normalization[grep(pattern="log.quant", x=all_final_models.importance$species)] = "log.quant"
+all_final_models.importance$normalization = factor(all_final_models.importance$normalization)
+
+file_name = paste("all_final_models.importance", fun_name, "RData", sep=".") # metabolite predictors based on ML approaches
+file_path = paste(output_dir, file_name, sep="/")
+save(all_final_models.importance, file=file_path)
+
+file_name = paste("file.list.importance", fun_name, "RData", sep=".") # metabolite predictions based on ML approaches
+file_path = paste(output_dir, file_name, sep="/")
+save(file.list.importance, file=file_path)
