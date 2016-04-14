@@ -94,6 +94,7 @@ p.coverage <- ggplot(toPlot, aes(x=B, y=avg, fill=stats)) +
                   name = "",
                   breaks = c("EC.coverage", "EC.active.inData"),
                   labels = c("All reactions", "Active reactions")) +
+  background_grid(major = "x", minor = "none") +
   theme(legend.position = c(.66, 0.1)) 
 
 coverage_thr <- 0.1
@@ -131,7 +132,7 @@ p.mean_cov <- ggplot(toPlot, aes(x=stats, y=MEAN_coverage)) +
                   labels = c("Overall", "Active")) +
   theme(legend.position = "none")
 
-## -- CVs of mix samples 
+## -- CVs of mix samples -----
 
 load("./R/objects/proteins.matrix.combat.quant.RData")
 load("./R/objects/fragments.matrix.quant.combat.RData")
@@ -168,6 +169,7 @@ data.all$type = factor(data.all$type, levels = c("fragments", "peptides", "prote
 data.all.summary = data.all %>% group_by(ORF, type) %>% summarise(CV = sd(signal, na.rm=T)/mean(signal, na.rm=T))
 
 
+toPlot <- data.all.summary
 
 p = ggplot(data = toPlot, aes(x=type, y=CV*100)) + 
   geom_violin() + 
@@ -237,7 +239,7 @@ p2 = ggplot(toPlot, aes(x=logFC)) +
   xlim(c(lb,ub)) +
   theme(aspect.ratio = 1)
 
-p.volcano <- p1 + annotation_custom(grob = ggplotGrob(p2), xmin = 0, xmax = 5, ymin = 50 , ymax = 170)
+p.volcano <- p1 + annotation_custom(grob = ggplotGrob(p2), xmin = 0, xmax = 5, ymin = 20 , ymax = 120)
 
 
 # IRT chromatogram stability ------------------
@@ -275,7 +277,7 @@ p.irt <- ggplot(toPlot, aes(x=aquisition_date.str, y=RT/60)) +
   scale_colour_tableau() +
   theme(legend.position="none",
         aspect.ratio = 5/8)
-p.irt
+
 toPlot <- toPlot %>% 
   group_by(filename) %>%
   mutate(iRT = (RT - sort(RT)[1])/(max(RT, na.rm = T) - sort(RT)[1]))
@@ -298,8 +300,7 @@ forModels <- toPlot %>%
   group_by(Sequence) %>%
   summarize(iRT_model = mean(iRT, na.rm=T))
 
-View(forModels)
-tmp.irt <- ddply(toPlot, .(filename), 
+toPlot <- ddply(toPlot, .(filename), 
       .fun = function(x) {
         z <<- x
         #x = toPlot[toPlot$filename == "./data.raw/KL_St_Mix_11.mzML",]
@@ -311,20 +312,83 @@ tmp.irt <- ddply(toPlot, .(filename),
         return(x)
       })  
 
-
-library(scales)
-p.irt.recalibrated <- ggplot(tmp.irt, aes(x=aquisition_date.str, y=iRT_recalibrated)) +
+View(toPlot)
+p.irt.recalibrated <- ggplot(toPlot, aes(x=aquisition_date.str, y=iRT_recalibrated)) +
   geom_point(aes(colour=Sequence)) +
   geom_vline(data = toPlot[grepl("mix", toPlot$filename, ignore.case = T),], 
              aes(xintercept=as.numeric(aquisition_date.str)), linetype=1, alpha=0.75, colour="darkgrey") +
   xlab("Acquisition date") +
   ylab("Relative retention time") +
-  scale_y_date()
+  #scale_y_date() +
   scale_colour_tableau() +
   theme(legend.position="none",
         aspect.ratio = 5/8)
 
 
+## -- transcriptome vs proteome ----------------
+
+load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+load("./R//objects/transcriptome.FC._clean_.RData")
+load("./R/objects/orf2ko._load_.RData")
+load("./R/objects/gene.annotations._load_.RData")
+
+orf2name = droplevels(unique(gene.annotations[,c("V4", "V6")]))
+orf2name$V4 = as.character(orf2name$V4)
+orf2name$V6 = as.character(orf2name$V6)
+orf2name$V6[orf2name$V6 == ""] = orf2name$V4[orf2name$V6 == ""]
+names(orf2name) = c("ORF", "gene_name")
+
+transcriptome.FC$KO = NULL
+transcriptome.FC = transcriptome.FC[,c("ORF", "logFC", "p.value", "p.value_BH", "KO.ORF")]
+names(transcriptome.FC)[length(transcriptome.FC)] = "KO"
+transcriptome.FC$isMetabolic = transcriptome.FC$ORF %in% unique(KEGG.pathways.f$ORF)
+transcriptome.FC.f = transcriptome.FC[transcriptome.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
+
+
+tr.pr.FC = merge(transcriptome.FC, proteins.matrix.combat.quant.FC, by=c("KO", "ORF"), suffixes=c(".tr", ".pr"))
+
+pval_thr = 0.05
+
+tr.pr.cor.ORF = tr.pr.FC %>% group_by(ORF, isMetabolic) %>% 
+  summarise(cor = cor(logFC.tr, logFC.pr, method="spearman"))
+
+tr.pr.cor.KO = tr.pr.FC %>% group_by(KO, isMetabolic) %>% 
+  summarise(cor = cor(logFC.tr, logFC.pr, method="spearman"))
+
+p.metabolic_correlations <- ggplot(tr.pr.cor.KO, aes(x=cor, fill = isMetabolic)) +  #to Supplementary
+  geom_density(alpha=0.5) +
+  xlab(expression(paste("Spearman's correlation coefficient, ", rho))) +
+  theme(legend.position = c(0.1, 0.8), aspect.ratio = 1)
+
+
+#abs(logFC.tr) < log2(1.7),
+tr.pr.cor.ORF.f = tr.pr.FC %>% group_by(ORF) %>% filter(p.value.tr < pval_thr) %>%
+  summarise(cor = cor(logFC.tr, logFC.pr, method="pearson"),
+            n = n())
+
+tr.pr.cor.KO.f = tr.pr.FC %>% group_by(KO) %>% filter(p.value.tr < pval_thr ) %>%
+  summarise(cor = cor(logFC.tr, logFC.pr, method="pearson"),
+            n = n())
+
+toPlot = tr.pr.cor.KO.f[tr.pr.cor.KO.f$n>=10,] %>% arrange(cor)
+toPlot$KO.name = orf2name$gene_name[match(toPlot$KO, orf2name$ORF)]
+toPlot$KO.name = factor(toPlot$KO.name, levels=unique(toPlot$KO.name))
+
+
+p.tr_vs_pr_cor = ggplot(toPlot, aes(x = rev(KO.name), y = cor,  size=n)) + 
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = c(-0.5,-0.25,0.25, 0.5), linetype = 3) +  
+  ylab(expression(paste("Pearson correlation between\ngene and protein expression changes, ", r))) +
+  xlab("Kinase mutant") +
+  ylim(-0.8,0.8) +
+  #guides(guide = guide_legend(tittle = "Deferentially expressed transcripts")) +
+  scale_size(name="Number of common transcripts\nand proteins changed per mutant") +
+  #coord_flip() + 
+  theme(legend.position = c(0.25, 0.3),
+        axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+
+  
 # Batch Effects ---------------------
 load("./R/objects/peptides.matrix.RData")
 load("./R/objects/peptides.matrix.quant.combat.RData")
@@ -398,4 +462,29 @@ pdf(file_path, height=247/25.4*2, width=183/25.4*2)
   #grid.text("E", just=c("left", "centre"), vp = viewport(layout.pos.row = 21, layout.pos.col = 36),gp=gpar(fontsize=20, col="black"))
   print(p.batch, vp = viewport(layout.pos.row = 21:40, layout.pos.col = 36:60)) #pathway average
 dev.off()
+
+
+file_name = "Figure1_v02_scripted.pdf"
+file_path = paste(figures_dir, file_name, sep="/")
+
+pdf(file_path, height=247/25.4*2, width=183/25.4*2)
+grid.newpage() 
+pushViewport(viewport(layout = grid.layout(135, 100)))
+
+grid.text("a", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+print(p.irt.recalibrated, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #experiment timeline with RT stability
+grid.text("b", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=20, col="black"))
+print(p.coverage, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 41:80))  #pathway coverage detailed
+print(p.pack_man, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 81:100)) #pathway pie chart
+print(p.mean_cov, vp = viewport(layout.pos.row = 16:30, layout.pos.col = 81:100)) #pathway average
+grid.text("c", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+print(p.volcano, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 1:40)) #Volcano plot
+grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 42),gp=gpar(fontsize=20, col="black"))
+print(p.tr_vs_pr_cor, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 45:100)) #Volcano plot
+
+dev.off()
+
+
+
+
 
