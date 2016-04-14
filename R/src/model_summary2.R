@@ -131,9 +131,6 @@ proteins.log = t(my_means(proteins.matrix.combat))
 
 read_models.caret.predict = function(x) {
   
-  x = matches[[16]]
-  z <<- x
-  x = z
   
   file_name = paste(input_path, x[[1]], sep="/") 
   my_models = get(load(file_name))
