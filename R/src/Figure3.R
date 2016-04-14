@@ -9,7 +9,6 @@ library("scales")
 ### summarizes results from linear regression models
 
 
-
 load("./R/objects/iMM904._load_.RData")
 load("./R/objects/metabolite2iMM904._load_.RData")
 input_path = "./results/2016-02-24/linear_models"
@@ -18,7 +17,6 @@ load("./R/objects/proteins.matrix.combat.RData")
 load("./R/objects/exp_metadata._clean_.RData")
 
 load("./R/objects/GO_slim.process._load_.RData")
-GO_slim.process %>% View()
 load("./R/objects/GO.raw._load_.RData")
 load("./R/objects/gene.annotations._load_.RData")
 
@@ -790,6 +788,7 @@ metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
 metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
 
 
+
 toPlot <- metabolites.models.long %>% filter(metabolite %in% metabolite.order$metabolite)
 
 toPlot$metabolite = factor(toPlot$metabolite, levels=as.character(metabolite.order$metabolite))
@@ -872,7 +871,10 @@ predicted.metabolites <- predicted.metabolites.long %>%
 predicted.metabolite.matrix <- as.matrix(predicted.metabolites[,-1])
 rownames(predicted.metabolite.matrix) <- predicted.metabolites$metabolite
 
-pheatmap(predicted.metabolite.matrix,  color = colorRampPalette(c("navy", "white", "firebrick3"))(50)) 
+bks <- seq(-4, 4, 0.25)
+pheatmap(predicted.metabolite.matrix, breaks = bks, ,
+         color =  colorRampPalette(c("red4","white","blue4"))(length(bks)-1), filename = "test.pdf", 
+         cellwidth = 10, cellheight = 10) 
 
 predicted.metabolites.long %>% 
   filter(!(knockout %in% c("none", "WT"))) %>%
@@ -886,11 +888,21 @@ genes.cl <- hclust(as.dist((1 - cor(predicted.metabolite.matrix))/2))
 predicted.metabolites.long$knockout = factor(predicted.metabolites.long$knockout, levels = genes.cl$labels[genes.cl$order])
 predicted.metabolites.long$metabolite = factor(predicted.metabolites.long$metabolite, levels = metabolites.cl$labels[metabolites.cl$order])
 
+cl.metabolites <- hclust(dist(predicted.metabolite.matrix))
+cl.genes <- hclust(dist(t(predicted.metabolite.matrix)))
+plot(cl.metabolites)
+
+predicted.metabolites.long$metabolite = factor(predicted.metabolites.long$metabolite, levels = rownames(predicted.metabolite.matrix)[cl.metabolites$order])
+predicted.metabolites.long$knockout = factor(predicted.metabolites.long$knockout, levels = colnames(predicted.metabolite.matrix)[cl.genes$order])
+
+
 ggplot() +
   geom_tile(data = predicted.metabolites.long, aes(x = metabolite, y = knockout, fill=pred)) +
   scale_fill_gradient2(mid = "white", low = brewer.pal(11, "RdBu")[1], high = brewer.pal(11, "RdBu")[11],
                        midpoint = 0, limit = c(-4,4),  
                        name="predicted Z-score")
+
+
 
 cor.matrix <- cor(t(predicted.metabolite.matrix))
 cor.matrix[lower.tri(cor.matrix)] <- NA
@@ -1129,7 +1141,7 @@ p.kinase_picture <- ggnet2(B1, label.size = 3, edge.alpha = 1,
 # ----- gene overlaps -----
 
 load("./R/objects/overlaps.gene_overlaps.RData")
-
+load("./R/objects/dataset.genes.gene_overlaps.RData")
 overlaps.f <- overlaps %>% filter(metabolite1 %in% metabolite.order$metabolite, metabolite2 %in% metabolite.order$metabolite) %>% droplevels()
 
 overlap.plots = list()
@@ -1197,6 +1209,119 @@ p.network_overlaps <- ggplot(toPlot, aes(x=fraction, fill=degree)) +
   theme(legend.position = c(0.5,0.5))
   
 
+# -- kinase specificity ----------
+
+load("./R/objects/all_final_models.importance.models_summary2.RData")
+load("./R/objects/all_final_models.models_summary2.RData")
+load("./R/objects/file.list.models_summary2.RData")
+load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+load("./R/objects/proteins.matrix.combat.quant.RData")
+
+metabolites.models.long <- all_final_models %>% 
+  filter(isImputed == 0, metabolite != "Glu") %>%
+  dplyr::select(model, RMSE, Rsquared, normalization, dataset, metabolite, degree, preprocessing) %>% 
+  distinct() %>%
+  group_by(metabolite, normalization, degree, preprocessing) %>%
+  #group_by(metabolite) %>%
+  filter(RMSE == min(RMSE,na.rm = T)) %>%
+  group_by(metabolite) %>% filter(degree < 5) %>%
+  filter(Rsquared == max(Rsquared,na.rm = T))
+
+
+predictors.dataset <- left_join(metabolites.models.long, all_final_models.importance) 
+
+metabolite.predictors <- predictors.dataset %>% filter(Overall >= 50) %>%
+  dplyr::select(metabolite, degree, gene ) %>% group_by(metabolite, degree, gene) %>% distinct()
+
+protein.matrix = proteins.matrix.combat.quant
+proteins.FC = proteins.matrix.combat.quant.FC
+
+reference = unique(as.character(proteins.FC$reference))
+
+pval_thr = 0.01
+
+FC_thr = getFC_thr(proteins.matrix=protein.matrix, pval_thr=pval_thr)
+
+load("./R/objects/KEGG.pathways.analysis1.RData")
+EC.genes = gene.annotations[gene.annotations$V3 == "EC number",]
+
+selected = c("Amino acid metabolism",                       
+             "Carbohydrate metabolism",                                          
+             "Energy metabolism",                                      
+             "Glycan biosynthesis and metabolism",                                    
+             "Metabolism of cofactors and vitamins",       
+             "Metabolism of other amino acids",                
+             "Nucleotide metabolism",                                                         
+             "Metabolism of terpenoids and polyketides",
+             "Biosynthesis of other secondary metabolites",
+             "Lipid metabolism")
+
+KEGG.pathways.f = droplevels(KEGG.pathways[KEGG.pathways$B %in% selected,])
+
+proteins.FC.f = proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
+proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
+proteins.FC.f$isEnzyme = proteins.FC.f$ORF %in% unique(EC.genes$V4)
+proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
+
+all_measured_enzymes <- as.vector((proteins.FC.f %>% filter(isMetabolic ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
+
+
+proteins.FC.f.stats <- proteins.FC.f %>% 
+  group_by(KO) %>%
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
+    summarize(n_metabolic = sum(isMetabolic == T),
+              n_yeast  = sum(isiMM904),
+              n_total = n())
+
+changed.genes <- proteins.FC.f %>% 
+  group_by(KO) %>% arrange() %>%
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>%
+  dplyr::select(ORF, KO)
+
+metabolite.predictors <- metabolite.predictors %>%
+  group_by(metabolite, degree) %>%
+    mutate(n_predictors = n())
+
+changed.predictors <- inner_join(metabolite.predictors, changed.genes, by = c("gene" = "ORF" ))
+  
+
+kinase.distances <- ddply(changed.predictors, .(metabolite, degree, n_predictors), 
+      .fun = function(x) {
+        tmp.df <- dcast(data = x, formula = "KO ~ gene", fun.aggregate = length)
+        tmp.matrix <- as.matrix(tmp.df[,-1])
+        rownames(tmp.matrix) = tmp.df[,1]
+        d = dist(tmp.matrix, method = "binary")
+        d.matrix <- as.matrix(d)
+        d.matrix[upper.tri(d.matrix)] <- NA
+        diag(d.matrix) <- NA
+        return(melt(d.matrix))
+
+      } )
+
+metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
+metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
+
+toPlot <- kinase.distances %>% filter(metabolite %in% metabolite.order$metabolite, n_predictors >= 5)
+
+toPlot.stats <- toPlot %>% 
+  group_by(metabolite) %>%
+  summarise(median = median(value, na.rm = T)) %>% 
+  ungroup() %>%
+  arrange(median)
+  
+toPlot$metabolite <- factor(toPlot$metabolite, levels = toPlot.stats$metabolite)
+p.specificity <- ggplot(toPlot, aes(x = 1 - value)) +
+  geom_density(fill="black") +
+  facet_grid(metabolite ~ . ) +
+  xlab("Predictors perturbation similarity following kinase deletion,\nJaccard index") +
+  theme(axis.line.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.y = element_text(angle=0),
+        strip.background = element_rect(colour = NULL))
+
+
 
 # ---- Figure3 --------------
 
@@ -1246,4 +1371,7 @@ print(p.metabolite_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col
 print(p.kinase_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col = 31:60))
 
 dev.off()
+
+
+
 
