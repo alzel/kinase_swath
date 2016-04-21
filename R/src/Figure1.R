@@ -6,9 +6,18 @@ plots.list = list()
 fun_name = "Figure1"
 
 library(scales)
-library(cowplot)
+#library(cowplot)
+
 load("./R/objects/exp_metadata._clean_.RData")
 
+load("./R/objects/gene.annotations._load_.RData")
+
+orf2name = unique(data.frame(ORF = gene.annotations$V4,
+                             sgd = gene.annotations$V5,
+                             gene_name = gene.annotations$V6))
+orf2name$ORF = as.character(orf2name$ORF)
+orf2name$gene_name = as.character(orf2name$gene_name)
+orf2name$gene_name[orf2name$gene_name ==""] = orf2name$ORF[orf2name$gene_name ==""]
 
 # KEGG pathway Coverage -------------------------------------
 
@@ -94,7 +103,8 @@ p.coverage <- ggplot(toPlot, aes(x=B, y=avg, fill=stats)) +
                   name = "",
                   breaks = c("EC.coverage", "EC.active.inData"),
                   labels = c("All reactions", "Active reactions")) +
-  background_grid(major = "x", minor = "none") +
+  cowplot::background_grid(major = "x", minor = "none") +
+  theme_bw() +
   theme(legend.position = c(.66, 0.1)) 
 
 coverage_thr <- 0.1
@@ -130,6 +140,7 @@ p.mean_cov <- ggplot(toPlot, aes(x=stats, y=MEAN_coverage)) +
   xlab("Mapped reactions") +
   scale_x_discrete(breaks = c("EC.coverage", "EC.active.inData"),
                   labels = c("Overall", "Active")) +
+  theme_bw() +
   theme(legend.position = "none")
 
 ## -- CVs of mix samples -----
@@ -177,8 +188,7 @@ p = ggplot(data = toPlot, aes(x=type, y=CV*100)) +
   scale_y_log10(limits=c(5,100), breaks=c(5, 10, 15,20, 50,  100))+
   annotation_logticks(sides="l") +
   ylab("Signal variation for the duration of experiment, CV") +
-  background_grid(major = "y", minor="y")
-
+ 
 
 toPlot <- data.all.summary %>% filter(type == "proteins")
 p.CV = ggplot(data = toPlot, aes(x=CV)) + 
@@ -187,11 +197,16 @@ p.CV = ggplot(data = toPlot, aes(x=CV)) +
   annotation_logticks(sides="b") +
   xlab("Signal variation during the duration of experiment, CV%") +
   geom_vline(xintercept = genefilter::shorth(toPlot$CV), linetype=5) +
-  background_grid(major = "x", minor="x")
+  theme_bw() + 
+  theme(aspect.ratio = 1)
+  #background_grid(major = "x", minor="x")
+
+plots.list <- lappend(plots.list, p.CV)
 
 ## -- Volcano plots ---- 
 load("./R/objects/proteins.matrix.combat.quant.FC.RData")
 load("./R/objects/proteins.matrix.combat.quant.RData")
+load("./R/objects/iMM904._load_.RData")
 
 protein.matrix = proteins.matrix.combat.quant
 proteins.FC = proteins.matrix.combat.quant.FC
@@ -200,7 +215,26 @@ reference = unique(as.character(proteins.FC$reference))
 
 lb = -4
 ub = 4
-toPlot = proteins.FC
+
+proteins.FC.f = proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
+
+#saving perturbations 
+toSave <- proteins.FC.f
+toSave$isMetabolic = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
+toSave$ORF.name <- orf2name$gene_name[match(toSave$ORF, orf2name$ORF)]
+toSave$KO.name <- orf2name$gene_name[match(toSave$KO, orf2name$ORF)]
+
+toSave <- toSave %>% 
+  select(ORF, ORF.name, KO, KO.name, logFC, p.value, p.value_BH, p.value_bonferroni, isMetabolic, reference) %>%
+  arrange(KO)
+file_name = paste("supplementary_file1", fun_name, "csv", sep = ".")
+file_path = paste(suppl_dir, file_name, sep="/")
+write.csv(x = toSave, file = file_path, row.names = F,  eol = "\n")
+
+proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
+proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
+
+toPlot = proteins.FC.f
 toPlot[toPlot$logFC < 0,]$logFC = ifelse(toPlot[toPlot$logFC < 0,]$logFC < lb, lb, toPlot[toPlot$logFC < 0,]$logFC)
 toPlot[toPlot$logFC > 0,]$logFC = ifelse(toPlot[toPlot$logFC > 0,]$logFC > ub, ub, toPlot[toPlot$logFC > 0,]$logFC)
 
@@ -229,7 +263,9 @@ p1 = ggplot(toPlot, aes(y=-log10(p.value_BH), x=logFC)) +
                                                     #paste0("ratio_sign = ",   ratio_sign),
                                                     #paste0("#_prot = ", n_prot), sep="\n"))) +
   xlab("Protein expression change in mutant, log2(fold-change)") +
+  theme_bw() +
   theme(aspect.ratio = 5/8, legend.position = "none")
+
 
 p2 = ggplot(toPlot, aes(x=logFC)) +
   geom_histogram(colour = "white", fill = "black", binwidth = 0.25) +
@@ -237,11 +273,62 @@ p2 = ggplot(toPlot, aes(x=logFC)) +
   xlab(paste("Log2(fold-change)")) +
   geom_vline(xintercept = c(FC_thr,-FC_thr),linetype=3) +
   xlim(c(lb,ub)) +
+  theme_bw() +
   theme(aspect.ratio = 1)
 
 p.volcano <- p1 + annotation_custom(grob = ggplotGrob(p2), xmin = 0, xmax = 5, ymin = 20 , ymax = 120)
 
+##  ---- fold-change boxplots for supplementary ------
 
+toPlot = proteins.FC.f
+
+toPlot$sign = ifelse(abs(toPlot$logFC) >= FC_thr & toPlot$p.value_BH < pval_thr, 1,0)
+toPlot$label = orf2name$gene_name[match(toPlot$KO, orf2name$ORF)]
+
+toPlot = toPlot %>% group_by(KO) %>% mutate(perturbation = abs(min(logFC)) + max(logFC)) %>% ungroup() %>% arrange(-perturbation)
+#label.genes <- unique(tolower(toPlot$label))
+#my_labels = lapply(label.genes, FUN = function(x) expression(paste(italic(get(x), Delta))))
+toPlot$label <- factor(toPlot$label, levels = unique(toPlot$label))
+
+s.kinase_boxplot_all <- ggplot(toPlot, aes(x=label, y = logFC)) + 
+  stat_boxplot(geom ='errorbar', width = 0.5) +
+  geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
+  geom_boxplot(outlier.shape = NA) + 
+  xlab("Kinase mutant") +
+  ylab("Log2(fold-change)") +
+  ylim(-4, 4) +
+  #scale_x_discrete(labels = as.vector(my_labels)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  
+
+toPlot.stats <- toPlot %>% group_by(KO, isiMM904) %>%
+  summarize(diff_range = diff(range(logFC, na.rm=T)),
+            diff_IQR = IQR(logFC, na.rm=T))
+  
+#plots.list <- lappend(plots.list, s.kinase_boxplot_all)
+toPlot.stats.res <- t.test(toPlot.stats$diff_IQR[toPlot.stats$isiMM904 == T], toPlot.stats$diff_IQR[toPlot.stats$isiMM904 == F])
+
+s.kinase_boxplot_metabolic <- ggplot(toPlot, aes(x=label, y = logFC, fill = isiMM904)) + 
+  stat_boxplot(geom ='errorbar', width = 0.5) +
+  #geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
+  geom_boxplot() + 
+  #annotate("text", x = 80, y = 2, label = round(toPlot.stats.res$p.value,2)) +
+  #geom_text(data = NA, aes(x=1, y= -2, label = round(toPlot.stats.res$p.value,2))) +
+  scale_fill_grey(name=paste("is metabolic enzyme?",  "p-value", " = ", round(toPlot.stats.res$p.value,2), sep = ""),
+                  breaks=c(T, F),
+                  labels=c("TRUE", "FALSE")) +
+  xlab("Kinase mutant") +
+  ylab(expression(paste("Protein expression, ", log[2], "(mutant/wild-type)", sep=""))) +
+  ylim(-4, 4) +
+  #scale_x_discrete(labels = as.vector(my_labels)) +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position=c(0.8, 0.2), aspect.ratio = 5/8)
+  
+
+
+s.kinase_boxplot_metabolic$toScale <- T
+plots.list <- lappend(plots.list, s.kinase_boxplot_metabolic)
 # IRT chromatogram stability ------------------
 
 load("./R/objects/dataset_irt_openswath._clean_.RData")
@@ -312,7 +399,7 @@ toPlot <- ddply(toPlot, .(filename),
         return(x)
       })  
 
-View(toPlot)
+
 p.irt.recalibrated <- ggplot(toPlot, aes(x=aquisition_date.str, y=iRT_recalibrated)) +
   geom_point(aes(colour=Sequence)) +
   geom_vline(data = toPlot[grepl("mix", toPlot$filename, ignore.case = T),], 
@@ -321,6 +408,7 @@ p.irt.recalibrated <- ggplot(toPlot, aes(x=aquisition_date.str, y=iRT_recalibrat
   ylab("Relative retention time") +
   #scale_y_date() +
   scale_colour_tableau() +
+  theme_bw() +
   theme(legend.position="none",
         aspect.ratio = 5/8)
 
@@ -341,7 +429,8 @@ names(orf2name) = c("ORF", "gene_name")
 transcriptome.FC$KO = NULL
 transcriptome.FC = transcriptome.FC[,c("ORF", "logFC", "p.value", "p.value_BH", "KO.ORF")]
 names(transcriptome.FC)[length(transcriptome.FC)] = "KO"
-transcriptome.FC$isMetabolic = transcriptome.FC$ORF %in% unique(KEGG.pathways.f$ORF)
+transcriptome.FC$isMetabolic = transcriptome.FC$ORF %in% unique(iMM904$gene)
+transcriptome.FC$isiMM904 = transcriptome.FC$ORF %in% unique(as.character(iMM904$gene))
 transcriptome.FC.f = transcriptome.FC[transcriptome.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
 
 
@@ -358,10 +447,11 @@ tr.pr.cor.KO = tr.pr.FC %>% group_by(KO, isMetabolic) %>%
 p.metabolic_correlations <- ggplot(tr.pr.cor.KO, aes(x=cor, fill = isMetabolic)) +  #to Supplementary
   geom_density(alpha=0.5) +
   xlab(expression(paste("Spearman's correlation coefficient, ", rho))) +
-  theme(legend.position = c(0.1, 0.8), aspect.ratio = 1)
+  theme_bw() +
+  theme(legend.position = c(0.1, 0.8), aspect.ratio = 1) 
+  
+plots.list <- lappend(plots.list, p.metabolic_correlations)
 
-
-#abs(logFC.tr) < log2(1.7),
 tr.pr.cor.ORF.f = tr.pr.FC %>% group_by(ORF) %>% filter(p.value.tr < pval_thr) %>%
   summarise(cor = cor(logFC.tr, logFC.pr, method="pearson"),
             n = n())
@@ -385,10 +475,96 @@ p.tr_vs_pr_cor = ggplot(toPlot, aes(x = rev(KO.name), y = cor,  size=n)) +
   #guides(guide = guide_legend(tittle = "Deferentially expressed transcripts")) +
   scale_size(name="Number of common transcripts\nand proteins changed per mutant") +
   #coord_flip() + 
+  theme_bw() +
   theme(legend.position = c(0.25, 0.3),
         axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
 
-  
+
+# --- saturation plots for supplementary ---------------
+
+pval_thr = 0.01
+FC_thr  = log2(1)
+
+transcriptome.FC.f.metabolic <- tbl_df(transcriptome.FC.f) %>% 
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr, isiMM904 == T)
+
+transcriptome.FC.f.stats <- transcriptome.FC.f %>% 
+  group_by(KO) %>%
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
+  summarize(n_metabolic = sum(isMetabolic == T),
+            n_yeast  = sum(isiMM904),
+            n_total = n())
+
+combinations <- combn(unique(as.character(transcriptome.FC.f.metabolic$KO)), 2)
+combinations.df <- as.data.frame(t(combinations))
+KO.genes <- transcriptome.FC.f.metabolic %>% dplyr::select(KO, ORF) %>% distinct()
+KO.genes$KO <- as.character(KO.genes$KO)
+KO.genes$ORF <- as.character(KO.genes$ORF)
+
+overlaps <- ddply(combinations.df, .(V1, V2),
+                  
+                  .fun = function(x) {
+                    df1 <- KO.genes %>% filter(KO == x$V1)
+                    df2 <- KO.genes %>% filter(KO == x$V2)
+                    
+                    result <- bind_rows(df1, df2) %>% 
+                      group_by(ORF) %>%
+                      summarise(gene_n = n()) %>% 
+                      summarize(intersection = sum(gene_n == 2),
+                                union = n(),
+                                overlap = intersection/union)
+                    
+                    
+                    return(result)
+                  }  )
+
+all_measured_enzymes <- as.vector((transcriptome.FC.f %>% filter(isiMM904 ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
+transcriptome.FC.f.metabolic$KO.gene <- orf2name$gene_name[match(transcriptome.FC.f.metabolic$KO, orf2name$ORF)]
+
+FC.f.metabolic.stats <-transcriptome.FC.f.metabolic %>% 
+  group_by(KO.gene) %>% 
+  summarise(n = n(),
+            n_pos = sum(logFC > 0)/length(all_measured_enzymes),
+            n_neg = sum(logFC < 0)/length(all_measured_enzymes)) %>% 
+  ungroup() %>% arrange(n)
+
+
+overlaps.stats <- overlaps %>% group_by(V1) %>%
+  summarize(mean.intersection = mean(intersection, na.rm=T)) %>%
+  mutate(gene_name = orf2name$gene_name[match(V1, orf2name$ORF)]) %>%
+  left_join(FC.f.metabolic.stats, by = c("gene_name" = "KO.gene"))
+
+toPlot <- overlaps.stats %>% 
+  ungroup() %>% 
+  mutate(n_fraction = n/length(all_measured_enzymes),
+         mean.intersection_fraction = mean.intersection/length(all_measured_enzymes))
+library(splines)
+
+p.saturation <- ggplot(toPlot, aes(x = n_fraction, y = mean.intersection_fraction)) +
+  geom_point() +
+  stat_smooth(method = "lm", formula=y~ns(x,2), se=F) +
+  scale_size(range = c(1, 5)) +
+  theme_bw() +
+  xlab("Fraction of perturbed metabolic network, %") +
+  theme(legend.position = c(0.7, 0.5))
+
+
+transcriptome.FC.f.stats$n_yeast_fraction <- transcriptome.FC.f.stats$n_metabolic/transcriptome.FC.f.stats$n_total
+toPlot <- transcriptome.FC.f.stats
+
+p.constant_fraction <- ggplot(toPlot %>% filter(n_total > 0 ), aes(x = n_total, y = n_yeast_fraction)) +
+  geom_point() +
+  geom_smooth(method = "loess", se=F) +
+  xlab("Number of proteins changes per mutant") +
+  ylab("Fraction of metabolic enzymes affected by kinase") +
+  theme_bw() + theme(aspect.ratio = 5/8)
+
+plots.list <- lappend(plots.list, p.constant_fraction)
+
+
+
+
+
 # Batch Effects ---------------------
 load("./R/objects/peptides.matrix.RData")
 load("./R/objects/peptides.matrix.quant.combat.RData")
@@ -428,7 +604,7 @@ annot$text = paste(annot$x_var, annot$y_var)
 scores$type = factor(scores$type, levels=c("before", "after"))
 
 
-library(cowplot)
+library(ggthemes)
 
 p.batch <- ggplot(scores, aes(x=PC1, y=PC2)) + 
   geom_point(size=2, aes(col=batch_kmeans))+
@@ -439,13 +615,15 @@ p.batch <- ggplot(scores, aes(x=PC1, y=PC2)) +
   geom_text(data = annot, aes(x=-50, y=-50, label=text)) +
   facet_wrap(~type, scales="fixed") + 
   scale_colour_tableau() +
+  theme_bw() +
   theme(aspect.ratio = 1,
-        legend.position = "bottom")
+        legend.position = "none")
 
-file_name = "Figure1_v01_scripted.pdf"
-file_path = paste(figures_dir, file_name, sep="/")
+plots.list <- lappend(plots.list, p.batch)
 
-pdf(file_path, height=247/25.4*2, width=183/25.4*2)
+## ----- figure version 1 --------
+
+plot_figure_v1 <- function () {
   grid.newpage() 
   pushViewport(viewport(layout = grid.layout(90, 60)))
   
@@ -461,30 +639,77 @@ pdf(file_path, height=247/25.4*2, width=183/25.4*2)
   #print(p.CV, vp = viewport(layout.pos.row = 21:30, layout.pos.col = 36:60)) #pathway average
   #grid.text("E", just=c("left", "centre"), vp = viewport(layout.pos.row = 21, layout.pos.col = 36),gp=gpar(fontsize=20, col="black"))
   print(p.batch, vp = viewport(layout.pos.row = 21:40, layout.pos.col = 36:60)) #pathway average
-dev.off()
+}
 
-
-file_name = "Figure1_v02_scripted.pdf"
+file_name = "Figure1_v01_scripted.pdf"
 file_path = paste(figures_dir, file_name, sep="/")
 
 pdf(file_path, height=247/25.4*2, width=183/25.4*2)
-grid.newpage() 
-pushViewport(viewport(layout = grid.layout(135, 100)))
+  plot_figure_v1() 
+dev.off()
 
-grid.text("a", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
-print(p.irt.recalibrated, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #experiment timeline with RT stability
-grid.text("b", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=20, col="black"))
-print(p.coverage, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 41:80))  #pathway coverage detailed
-print(p.pack_man, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 81:100)) #pathway pie chart
-print(p.mean_cov, vp = viewport(layout.pos.row = 16:30, layout.pos.col = 81:100)) #pathway average
-grid.text("c", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
-print(p.volcano, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 1:40)) #Volcano plot
-grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 42),gp=gpar(fontsize=20, col="black"))
-print(p.tr_vs_pr_cor, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 45:100)) #Volcano plot
+file_name = "Figure1_v01_scripted.png"
+file_path = paste(figures_dir, file_name, sep="/")
 
+png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
+  plot_figure_v1() 
+dev.off()
+
+# --- figure version 2 ---- 
+
+plot_figure_v2 <- function() {
+  grid.newpage() 
+  pushViewport(viewport(layout = grid.layout(135, 100)))
+  
+  grid.text("a", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  print(p.irt.recalibrated, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #experiment timeline with RT stability
+  grid.text("b", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=20, col="black"))
+  print(p.coverage , vp = viewport(layout.pos.row = 1:30, layout.pos.col = 41:80))  #pathway coverage detailed
+  print(p.pack_man, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 81:100)) #pathway pie chart
+  print(p.mean_cov , vp = viewport(layout.pos.row = 16:30, layout.pos.col = 81:100)) #pathway average
+  grid.text("c", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  print(p.volcano, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 1:40)) #Volcano plot
+  grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 42),gp=gpar(fontsize=20, col="black"))
+  print(p.tr_vs_pr_cor, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 45:100)) #Volcano plot
+  
+}
+
+file_name = "Figure1_v02_scripted.pdf"
+file_path = paste(figures_dir, file_name, sep="/")
+pdf(file_path, height=247/25.4*2, width=183/25.4*2)
+  plot_figure_v2()
+dev.off()
+
+file_name = "Figure1_v02_scripted.png"
+file_path = paste(figures_dir, file_name, sep="/")
+
+png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
+  plot_figure_v2() 
 dev.off()
 
 
+#----- Supplementary figures ----- 
 
+file_name = paste("supplementary", fun_name, sep = ".")
+file_path = paste(figures_dir, file_name, sep="/")
 
-
+lapply(seq_along(plots.list) , 
+       function(x) {
+         
+         tryCatch({
+           p <- plots.list[[x]]
+           scale = 1
+           if (length(p$toScale) != 0 && p$toScale == T  ){
+             scale = 2
+           }
+           ggplot2::ggsave(filename = paste(file_path, x , "pdf", sep = "."), device = NULL,
+                           plot = p, width = 210 , height = 297, units = "mm", scale = scale)
+         }, error = function(e) {
+           message(paste("Plot", "x", "sucks!" ))
+           return(NULL)
+         }, finally = {
+           message(paste("processed plot", x))
+         })
+         
+         
+       })
