@@ -194,6 +194,17 @@ p.specificity_hist <- ggplot(toPlot, aes(x = 1 - value)) +
 
 
 
+# --- constant fraction ------------------
+proteins.FC.f.stats$n_yeast_fraction <- proteins.FC.f.stats$n_metabolic/proteins.FC.f.stats$n_total
+toPlot <- proteins.FC.f.stats 
+p.constant_fraction <- ggplot(toPlot, aes(x = n_total, y = n_yeast_fraction)) +
+  geom_point() +
+  geom_smooth(method = "loess") +
+  xlab("Number of proteins changes per mutant") +
+  ylab("Fraction of metabolic enzymes affected by kinase") +
+  theme_bw()
+
+
 ## ------ enzyme overlaps --------
 
 proteins.FC.f.metabolic <- tbl_df(proteins.FC.f) %>% 
@@ -271,6 +282,23 @@ tmp <- data.frame(similarity = d.matrix.all[upper.tri(d.matrix.all)],
                   type = "all",
                   dataset = "metabolic")
 similarities <- lappend(similarities, tmp)
+
+
+similarities.long <- list()
+tmp <- melt(d.matrix.up)
+tmp$type = "up"
+tmp$dataset = "metabolic"
+similarities.long <- lappend(similarities.long, tmp)
+
+tmp <- melt(d.matrix.down)
+tmp$type = "down"
+tmp$dataset = "metabolic"
+similarities.long <- lappend(similarities.long, tmp)
+
+tmp <- melt(d.matrix.all)
+tmp$type = "all"
+tmp$dataset = "metabolic"
+similarities.long <- lappend(similarities.long, tmp)
 
 
 
@@ -354,7 +382,7 @@ p.combined <- grid.arrange(gp2, gp1, ncol=2,widths=c(7/10,3/10))
 p.combined$toScale <- T
 plots.list <- lappend(plots.list, p.combined)
 
-### ----- heatmap of all genes ---------------
+### ----- heatmap of non_metabolic genes ---------------
 
 
 proteins.FC.f.non_metabolic <- tbl_df(proteins.FC.f) %>% 
@@ -433,6 +461,24 @@ tmp <- data.frame(similarity = d.matrix.all[upper.tri(d.matrix.all)],
 similarities <- lappend(similarities, tmp)
 
 
+tmp <- melt(d.matrix.up)
+tmp$type = "up"
+tmp$dataset = "non_metabolic"
+similarities.long <- lappend(similarities.long, tmp)
+
+tmp <- melt(d.matrix.down)
+tmp$type = "down"
+tmp$dataset = "non_metabolic"
+similarities.long <- lappend(similarities.long, tmp)
+
+tmp <- melt(d.matrix.all)
+tmp$type = "all"
+tmp$dataset = "non_metabolic"
+similarities.long <- lappend(similarities.long, tmp)
+
+# file_name = paste("similarities.long", fun_name, "RData", sep=".")
+# file_path = paste(output_dir, file_name, sep="/")
+# save(similarities.long, file=file_path)
 
 toPlot <- melt(zeros.matrix)
 toPlot$x.name <- factor(rownames(d.matrix.all)[toPlot$X1], levels = rownames(d.matrix.all))
@@ -487,6 +533,159 @@ p.combined <- grid.arrange(pEmpty + theme(aspect.ratio = 4/1), pEmpty + theme(as
 p.combined$toScale <- T
 plots.list <- lappend(plots.list, p.combined)
 
+# --- heatmap of all genes ---------------
+
+proteins.FC.f.all <- tbl_df(proteins.FC.f) %>% 
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr)
+
+# all enzymes
+proteins.FC.f.all$KO.gene <- orf2name$gene_name[match(proteins.FC.f.all$KO, orf2name$ORF)]
+stopifnot(!any(is.na(proteins.FC.f.all$KO.gene)))
+
+x = proteins.FC.f.all
+x.wide <- dcast(x, "KO.gene ~ ORF", value.var = "logFC")
+x.wide[is.na(x.wide)] <- 0
+x.wide.matrix <- x.wide[,-1]
+rownames(x.wide.matrix) <- x.wide[,1]
+x.wide.matrix <- ifelse(x.wide.matrix != 0, 1, 0)
+
+d.matrix.all <- 1 - as.matrix(dist(x.wide.matrix, method = "binary"))
+
+
+#upregulated
+x = proteins.FC.f.all %>% filter(logFC > 0)
+x.wide <- dcast(x, "KO.gene ~ ORF", value.var = "logFC")
+x.wide[is.na(x.wide)] <- 0
+x.wide.matrix <- x.wide[,-1]
+rownames(x.wide.matrix) <- x.wide[,1]
+x.wide.matrix <- ifelse(x.wide.matrix != 0, 1, 0)
+
+d.matrix.up <- 1 - as.matrix(dist(x.wide.matrix, method = "binary"))
+
+#downregulated
+x = proteins.FC.f.all %>% filter(logFC < 0)
+x.wide <- dcast(x, "KO.gene ~ ORF", value.var = "logFC")
+x.wide[is.na(x.wide)] <- 0
+x.wide.matrix <- x.wide[,-1]
+rownames(x.wide.matrix) <- x.wide[,1]
+x.wide.matrix <- ifelse(x.wide.matrix != 0, 1, 0)
+
+d.matrix.down <- 1 - as.matrix(dist(x.wide.matrix, method = "binary"))
+
+
+FC.f.all.stats <- proteins.FC.f.all %>% 
+  group_by(KO.gene) %>% 
+  summarise(n = n(),
+            n_pos = sum(logFC > 0)/length(all_proteins),
+            n_neg = sum(logFC < 0)/length(all_proteins)) %>% 
+  ungroup() %>% arrange(n)
+
+cl = hclust(dist(d.matrix.all))
+cl <- dendextend::rotate(cl, order = as.character(FC.f.all.stats$KO.gene))
+d.matrix.all <- d.matrix.all[cl$order,cl$order]
+
+
+d.matrix.up <- d.matrix.up[rownames(d.matrix.up)[match(rownames(d.matrix.all),rownames(d.matrix.up))], 
+                           colnames(d.matrix.up)[match(colnames(d.matrix.all),colnames(d.matrix.up))]]
+d.matrix.down <- d.matrix.down[rownames(d.matrix.down)[match(rownames(d.matrix.all),rownames(d.matrix.down))], 
+                               colnames(d.matrix.down)[match(colnames(d.matrix.all),colnames(d.matrix.down))]]
+
+
+zeros.matrix <- matrix(data=0, ncol = ncol(d.matrix.down), nrow = nrow(d.matrix.up))
+zeros.matrix[upper.tri(zeros.matrix)] <- d.matrix.up[upper.tri(d.matrix.up)]
+zeros.matrix[lower.tri(zeros.matrix)] <- d.matrix.down[lower.tri(d.matrix.down)]*-1
+
+# tmp <- data.frame(similarity = d.matrix.up[upper.tri(d.matrix.up)],
+#                   type = "up",
+#                   dataset = "all")
+# similarities <- lappend(similarities, tmp)
+# 
+# tmp <- data.frame(similarity = d.matrix.down[upper.tri(d.matrix.down)],
+#                   type = "down",
+#                   dataset = "all")
+# similarities <- lappend(similarities, tmp)
+# 
+# tmp <- data.frame(similarity = d.matrix.all[upper.tri(d.matrix.all)],
+#                   type = "all",
+#                   dataset = "all")
+# similarities <- lappend(similarities, tmp)
+
+
+tmp <- melt(d.matrix.up)
+tmp$type = "up"
+tmp$dataset = "all"
+similarities.long <- lappend(similarities.long, tmp)
+
+tmp <- melt(d.matrix.down)
+tmp$type = "down"
+tmp$dataset = "all"
+similarities.long <- lappend(similarities.long, tmp)
+
+tmp <- melt(d.matrix.all)
+tmp$type = "all"
+tmp$dataset = "all"
+similarities.long <- lappend(similarities.long, tmp)
+
+file_name = paste("similarities.long", fun_name, "RData", sep=".")
+file_path = paste(output_dir, file_name, sep="/")
+save(similarities.long, file=file_path)
+
+toPlot <- melt(zeros.matrix)
+toPlot$x.name <- factor(rownames(d.matrix.all)[toPlot$X1], levels = rownames(d.matrix.all))
+toPlot$y.name <- factor(colnames(d.matrix.all)[toPlot$X2], levels = colnames(d.matrix.all))
+
+my_breaks <- seq(1, -1, -0.25)
+
+my_colours <- rev(brewer.pal(name = "RdBu", n = length(my_breaks) - 1))
+my_colours[c(4,5)] <- "white"
+
+p.heatmap_all_all <- ggplot(toPlot) +  
+  geom_tile(aes(x = x.name, y = y.name, fill = cut(value, breaks = my_breaks)), colour="grey") +
+  #   scale_fill_gradient2(low="#1F78B4",high="#E31A1C",mid ="white",
+  #                        breaks = seq(-0.75, 0.75, 0.25),
+  #                        midpoint=0)  +
+  scale_fill_manual(values = my_colours, name = "Perturbation overlap") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+        legend.position = c(0.1, 0.8), 
+        legend.background = element_rect(colour = NA),
+        aspect.ratio = 1) +
+  labs(x="", y = "")
+
+
+toPlot <- FC.f.all.stats %>% 
+  dplyr::select(KO.gene, n_pos, n_neg) %>% as.data.frame()%>%
+  melt(id.vars = "KO.gene") 
+toPlot$KO.gene <- factor(toPlot$KO.gene, levels = rownames(d.matrix.all)) 
+
+
+p.barplot_all_all <- ggplot(toPlot, aes(x=KO.gene, y=value, fill=variable)) + 
+  geom_bar(stat="identity", width=.5) + 
+  labs(x = "", y = "Perturbed fraction of non metabolic proteins") +
+  coord_flip() + 
+  scale_fill_manual(values = my_colours[c(length(my_colours),1)], name = "") +
+  theme_classic() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = c(0.7, 0.1),
+        legend.background = element_rect(colour = NA)) 
+
+
+
+pEmpty <- ggplot(mtcars, aes(x = wt, y = mpg)) +
+  geom_blank() +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        line = element_blank(),
+        panel.background = element_blank())
+
+p.combined <- grid.arrange(pEmpty + theme(aspect.ratio = 4/1), pEmpty + theme(aspect.ratio = 1/4), p.heatmap_all_all, p.barplot_all_all, ncol = 2, nrow = 2, widths = c(3, 1), heights = c(1, 3))
+p.combined$toScale <- T
+plots.list <- lappend(plots.list, p.combined)
+
+
+
+
 # --- similarities of metabolic vs non metabolic -------------------
 
 similarities.df <- bind_rows(similarities)
@@ -534,7 +733,7 @@ overlaps.stats <- overlaps %>% group_by(V1) %>%
   mutate(gene_name = orf2name$gene_name[match(V1, orf2name$ORF)]) %>%
   left_join(FC.f.metabolic.stats, by = c("gene_name" = "KO.gene"))
 
-overlaps.stats$degree <- degree(GRAPH)[match(overlaps.stats$V1, names(degree(GRAPH)))]
+overlaps.stats$degree <- igraph::degree(GRAPH)[match(overlaps.stats$V1, names(igraph::degree(GRAPH)))]
 
 toPlot <- overlaps.stats %>% 
   ungroup() %>% 
@@ -564,14 +763,6 @@ p.degree_vs_metabolic <- ggplot(toPlot, aes(x=degree, y = n_fraction)) +
 plots.list <- lappend(plots.list, p.degree_vs_metabolic)
 
 
-proteins.FC.f.stats$n_yeast_fraction <- proteins.FC.f.stats$n_metabolic/proteins.FC.f.stats$n_total
-toPlot <- proteins.FC.f.stats 
-p.constant_fraction <- ggplot(toPlot, aes(x = n_total, y = n_yeast_fraction)) +
-  geom_point() +
-  geom_smooth(method = "loess") +
-  xlab("Number of proteins changes per mutant") +
-  ylab("Fraction of metabolic enzymes affected by kinase") +
-  theme_bw()
 
 
 
@@ -866,6 +1057,24 @@ plots.list <- lappend(plots.list, s.combined.slopes)
 
 
 
+# ---  similarities comparisong ------------
+
+load("./R/objects/similarities.dataset.signaling_similarity.RData")
+toPlot <- similarities.dataset
+toPlot$sample_type <- factor(toPlot$sample_type, levels = c("signal", "random"))
+
+toPlot.stats <- tbl_df(toPlot) %>% group_by(sim_type, sample_type) %>% 
+  summarise(pval = (wilcox.test(value[sample_type == "signal"], value[sample_type == "random"]))$p.value )
+
+ggplot(toPlot , aes(x = value, fill = sample_type)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous(breaks = seq(0,1, by = 0.25)) +
+  facet_wrap(~sim_type, scales = "free") +
+  theme_bw() + 
+  theme(legend.position = c(0.1, 0.5))
+
+
+
 # -- Figure 2 -------
 
 plot_figure_v2 <- function() {
@@ -922,6 +1131,10 @@ lapply(seq_along(plots.list) ,
            }
            ggplot2::ggsave(filename = paste(file_path, x , "pdf", sep = "."), device = NULL,
                            plot = p, width = 210 , height = 297, units = "mm", scale = scale)
+           
+           ggplot2::ggsave(filename = paste(file_path, x , "png", sep = "."), device = NULL,
+                           plot = p, width = 210 , height = 297, dpi = 150, units = "mm", scale = scale)
+           
          }, error = function(e) {
            message(paste("Plot", "x", "sucks!" ))
            return(NULL)

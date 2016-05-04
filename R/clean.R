@@ -569,6 +569,24 @@ create_irt_dataset <- function() {
 }
 
 
+create.Sentinels_dataset <- function() {
+  load("./R/objects/sentinels.raw._load_.RData") # load.R::load_sentinels_dataset()
+  
+  sentinels.raw <- tbl_df(sentinels.raw)  
+  #stopifnot(identical(peptides.filtered$R.FileName, peptides.filtered$R.Label))
+  
+  #peptides.filtered$sample = factor(sub(x=peptides.filtered$R.Label, pattern="^(KL_\\w+_\\w+)_\\w+", replacement="\\1", perl=T))
+  #peptides.filtered$replicate = factor(sub(x=peptides.filtered$R.Label, pattern="^KL_\\w+_\\w+_(\\w+)", replacement="\\1", perl=T))
+  
+  sentinels.raw$fragment = with(sentinels.raw,  paste(F.FrgType, F.FrgNum, F.FrgLossType, sep="."))
+  
+  sentinels.data = dplyr::select(sentinels.raw, R.Label, EG.StrippedSequence, FG.Id, EG.Qvalue, FG.TotalPeakArea, fragment,  F.PeakArea )
+  
+  file_name = paste("sentinels.data", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(sentinels.data,file=file_path)  
+}
+
 
 
 main = function() {
@@ -586,6 +604,7 @@ main = function() {
   create.kinase_transcrtiptome()
   create.sentinel_list()
   create.sentinelSRM_list()
+  create.Sentinels_dataset()
 }
 
 

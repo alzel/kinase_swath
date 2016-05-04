@@ -508,6 +508,15 @@ load_essential_ORFs = function() {
 }
 
 
+
+load_sentinels_dataset = function() {
+  sentinels.raw <- read.csv("./data/2016-05-04/KL_SentinelAssay_Spectronaut_merge_150106.csv")
+  file_name = paste("sentinels.raw", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(sentinels.raw, file=file_path)  
+}
+
+
 load_flux_coupling = function() {
   input_path = "./results/2015-06-09/fc_results"
   
@@ -558,6 +567,7 @@ main = function() {
   load_KEGG_htext()
   load_iMaranas_GTrass()
   load_essential_ORFs()
+  load_sentinels_dataset()
 }
 
 main()
