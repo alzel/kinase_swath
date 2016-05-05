@@ -371,7 +371,7 @@ p.graph = ggnet2(B, mode = c("x", "y"), label.size = 4, edge.alpha = 0.7,
 # file_path = paste(output_dir, file_name, sep="/")
 # write.graph(net, file=file_path, format="graphml")
 
-# glutamate example ------------------------
+# glutamite example ------------------------
 met = "glutamine"
 
 stopifnot(length(met)==1)
@@ -485,6 +485,8 @@ toMark_proteins <- ddply(toMark, .variables = .(metabolite, file, sample_name, g
       }
 )
 
+
+
 tmp.data <- all_linear_models %>% filter(ismetIncluded == 0, degree == 1, the_super_best == T, metabolite == met)
 
 
@@ -519,11 +521,15 @@ p.enzymes <- ggplot() +
   ylab("Effector enzyme") +
   xlab("Kinase knockout") +
   geom_point(data=toPlot_coefs, aes(y=variable_name, x=5, size=abs(weight), colour=effector)) +
-  theme(legend.position="bottom", aspect.ratio = 1) 
+  theme(legend.position="none", aspect.ratio = 1) 
+
 p.enzymes <- ggdraw(switch_axis_position(p.enzymes , axis = 'x'))
 
+# data_file = sub(x = unique(as.character(p.met$data$file)), pattern = "linear_models.", replacement = "")
+# metabolite_data <- get(load(paste("./results/2016-02-24/data.AA/", data_file, sep = "")))
+# colnames(metabolite_data) = c(met, orf2name$gene_name[match(colnames(metabolite_data), orf2name$ORF)][-1])
 
- 
+
 # --- example small graph ---- 
 
 measured.proteins = row.names(proteins.matrix.combat.quant)
@@ -760,12 +766,183 @@ protAA_model_name <- metabolite2iMM904$model_name[match(protAA$metabolite, metab
 model.measured.AA <- yeast.model[yeast.model$metabolite %in% protAA_model_name,]
 model.measured.AA$istRNA <- ifelse(model.measured.AA$gene %in% tRNAs$ORF, 1, 0)
 
+
 model.measured.AA %>% 
   group_by(metabolite) %>%
   summarize(sum(istRNA))
 
 #metaboblites with tRNA as predictors
 AA.linear_models[AA.linear_models$X1 %in% tRNAs$ORF,] %>% filter(adj.r.squared > 0.25) %>% dplyr::select(metabolite) %>% distinct()
+
+# --- BRENDA metabolites ---------------
+
+yeast.model = iMM904
+yeast.model = yeast.model[grep("t", yeast.model$reaction, invert=T),] #removing all tranporters
+edgelist = unique(droplevels(na.omit(subset(yeast.model, metabolite != "h"  & metabolite !="h2o" & metabolite != "nh4" & metabolite != "ppi" , select = c("metabolite", "gene")))))
+B <- graph.data.frame(edgelist)
+V(B)$type <- V(B)$name %in% edgelist$metabolite
+stopifnot(igraph::is.bipartite(B))
+
+measured.proteins = row.names(proteins.matrix.combat.quant)
+
+coverage = ddply(all_final_models.aic, .(dataset, metabolite), 
+                 .fun=function(x) {
+                   
+                   dataset = as.character(unique(x$dataset))
+                   i = as.character(unique(x$metabolite))
+                   
+                   current_nodes = as.character(metabolite2iMM904$model_name[metabolite2iMM904$id == i])    
+                   measured.metabolites = as.character(unique(all_final_models.aic$metabolite[all_final_models.aic$dataset == dataset ]))
+                   measured.metabolites.model = as.character(unique(metabolite2iMM904$model_name[metabolite2iMM904$id %in% measured.metabolites]))
+                   
+                   if (length(current_nodes) == 0) {
+                     message(paste("No ", i, "found in network"))
+                     next()
+                   }
+                   
+                   SUB = igraph::induced.subgraph(B, unique(unlist(igraph::neighborhood(B, order=2, nodes=current_nodes))))    
+                   genes = unique(V(SUB)$name[V(SUB)$type == 0])
+                   metabolites = unique(V(SUB)$name[V(SUB)$type == 1])
+                   
+                   coverage.met = data.frame(metabolite = i, 
+                                             dataset = dataset, 
+                                             type = "metabolic",
+                                             neighbour = metabolites,
+                                             isMeasured = ifelse(metabolites %in% measured.metabolites.model, 1, 0))
+                   
+                   coverage.gene = data.frame(metabolite = i, 
+                                              dataset = dataset, 
+                                              type = "gene",
+                                              neighbour = genes,
+                                              isMeasured = ifelse(genes %in% measured.proteins, 1, 0))
+                   
+                   return(rbind(coverage.met, coverage.gene))
+                   
+                 })  
+
+
+coverage.stats = coverage %>% group_by(metabolite, dataset, type) %>% summarise(coverage = sum(isMeasured)/length(isMeasured))
+coverage.stats.wide = dcast(formula=metabolite+dataset~type, value.var="coverage", data=coverage.stats)
+
+
+brenda <- read.delim("./data/2015-10-07/brenda.txt")
+load("./R/objects/proteins.matrix.combat.RData")
+
+ec.gene = unique(gene.annotations[gene.annotations$V3 == "EC number",c(1,4)])
+
+
+
+#coverage of measured EC 
+coverage.ec = droplevels(coverage[coverage$type == "gene",])
+coverage.ec = merge(coverage.ec, ec.gene, by.x = "neighbour", by.y = "V4")
+coverage.ec$kegg_id = metabolite2iMM904$kegg_id[match(coverage.ec$metabolite, metabolite2iMM904$id)]
+brenda[grep(pattern = "pro", x = brenda$substrate, ignore.case = T),] %>% View()
+
+brenda.f = brenda[!brenda$KEGGID == "",]
+brenda.f = brenda.f[grep(pattern="mutant|recombinant", x= brenda.f$commentary, invert=T),]
+
+load("./R/objects/dataTCA.create_datasets.RData")
+load("./R/objects/dataAA.create_datasets.RData")
+
+metabolitesTCA.long = melt(dataTCA$metabolites)
+metabolitesTCA.long$dataset = "TCA"
+
+metabolitesAA.long = melt(dataAA$metabolites)
+metabolitesAA.long$dataset = "AA"
+
+
+# adjust concentration with volume and OD from this paper: doi:10.1016/j.funbio.2009.11.002
+my.vol = c(median = 45.54, sd = 0.9) * 1e-15 # cell vol
+my.cells = 3.2 * 10^7 * 1.5*5 # median of spectrophotometre data
+ex.vol = 100*1e-6
+
+metabolitesTCA.long$concentration = metabolitesTCA.long$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
+
+#different dilution used fot AA protocol
+ex.vol = 200*1e-6
+
+metabolitesAA.long$concentration = metabolitesAA.long$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
+
+
+metabolites.long = rbind(metabolitesAA.long, metabolitesTCA.long)
+metabolites.long = merge(metabolites.long, unique(droplevels(subset(metabolite2iMM904,select=c("id", "kegg_id")))), by.x="X2", by.y="id")
+metabolites.long = merge(brenda.f, metabolites.long, by.x="KEGGID", by.y="kegg_id")
+metabolites.long = metabolites.long[metabolites.long$kmValue > 0,]
+metabolites.long$label = metabolite2iMM904$official_name[match(metabolites.long$KEGGID, metabolite2iMM904$kegg_id )]
+
+
+
+models.summary = all_linear_models %>% filter(degree==1, ismetIncluded == 0,  the_super_best)
+
+
+models.summary = models.summary[models.summary$X1 != "stats",]
+models.summary = merge(models.summary, ec.gene, by.x = "X1", by.y = "V4")
+models.summary$kegg_id = metabolite2iMM904$kegg_id[match(models.summary$metabolite, metabolite2iMM904$id)]
+models.summary = models.summary%>% arrange(metabolite, dataset)
+
+
+ec.presence  = unique(ddply(metabolites.long, .variables=.(KEGGID, dataset), 
+                            .fun=function(x) {
+                              met_id = as.character(unique(x$KEGGID))
+                              z = data.frame (ecNumber = x$ecNumber,
+                                              inNetwork = x$ecNumber %in% coverage.ec$V1[coverage.ec$kegg_id == met_id],
+                                              isPredictor = x$ecNumber %in% models.summary$V1[models.summary$kegg_id == met_id] )
+                              return(z)
+                            }))
+
+metabolites.long = merge(metabolites.long, ec.presence, by = c("KEGGID", "dataset", "ecNumber"))
+toPlot = metabolites.long %>% filter(inNetwork == T)
+
+tRNA_predictors <- AA.linear_models %>% 
+  filter(X1 %in% tRNAs$ORF) %>% 
+  dplyr::select(metabolite, X1) %>% distinct() %>% 
+  left_join(ec.gene, by = c("X1" = "V4"))
+
+names(tRNA_predictors) <- c("metabolite", "gene_name", "ec")
+  
+
+# checking for saturation
+metabolites.long = metabolites.long %>% mutate(ratio = concentration/kmValue)
+toPlot = metabolites.long %>% filter(inNetwork == T)
+points = metabolites.long %>% filter(isPredictor == T)
+
+points2 = inner_join(points, tRNA_predictors, by = c("X2" = "metabolite", "ecNumber" = "ec"))
+
+p = ggplot(toPlot, aes(y=log(ratio), x = label)) +  
+  geom_boxplot() +
+  geom_point(data=points, aes(y=log(ratio), x = label), col="red") +
+  geom_hline(yintercept = 0) +
+  facet_wrap(~dataset, scales = "free", ncol=1) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+toPlot <- points2
+p.trna <- ggplot(toPlot, aes(x=log(ratio), fill = label)) +  
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 0) +
+  scale_fill_discrete(name = "") +
+  xlab(expression(paste("Measured intracellular concentraions divided by ", K[M], " of tRNA charging enzymes, ln(ratio)"))) +
+  theme_bw() +
+  theme(legend.position = c(0.6, 0.7), legend.background = element_rect(color = NULL), legend.direction = "horizontal")
+
+# predictors AA vs TCA
+toPlot = metabolites.long %>% filter(inNetwork == T, isPredictor == T)
+#toPlot = metabolites.long
+stats = data.frame(label_text = c(log(median(toPlot$ratio[toPlot$dataset == "AA"], na.rm=T)/median(toPlot$ratio[toPlot$dataset == "TCA"], na.rm=T)),
+                                  wilcox.test(log(toPlot$ratio[toPlot$dataset == "AA"]), log(toPlot$ratio[toPlot$dataset == "TCA"]))$p.value,
+                                  sum(log(toPlot$ratio) > 0, na.rm=T)/length(toPlot$ratio)), #above Km
+                   
+                   x = -7,
+                   y = c(0.15, 0.13, 0.1))
+
+toPlot$dataset = factor(toPlot$dataset)
+
+p.aatca <- ggplot() +  
+  geom_density(data=toPlot, aes(x=log(ratio), fill=dataset), alpha = 0.5) +
+  geom_text(data=stats, aes(x=x+2, y=y, label = label_text)) +
+  xlab(expression(paste("Measured intracellular concentraions divided by ", K[M], " of predictor enzymes, ln(ratio)"))) +
+  geom_vline(xintercept = 0) +
+  theme_bw() +
+  theme( legend.position = c(0.7,0.7))
 
 
 # ---- comparing network degrees ------ 
@@ -960,8 +1137,8 @@ kinase.graph_dataset.f <- kinase.graph_dataset %>% filter(abs(weight) > kin_thr)
 #kinase.graph_dataset.f <- kinase.graph_dataset
 
 metabolite.graph_dataset <- rbind.data.frame(metabolite.graph_dataset.max, metabolite.graph_dataset.min)
-#metabolite.graph_dataset.f <- metabolite.graph_dataset %>% filter(abs(weight) > kin_thr) 
-metabolite.graph_dataset.f <- metabolite.graph_dataset
+metabolite.graph_dataset.f <- metabolite.graph_dataset %>% filter(abs(weight) > kin_thr) 
+#metabolite.graph_dataset.f <- metabolite.graph_dataset
 
 
 #storing different network pictures 
@@ -1062,7 +1239,7 @@ node_properties <- data.frame(node = V(net2)$name,
                               node_name = V(net2)$node_name)
 
 node_properties$node_score  = kinase.effects$node_score[match(node_properties$node, kinase.effects$from)]
-node_properties$node_size = as.numeric(cut(node_properties$node_score, breaks = c(0, 2, 5, 10, 30)))
+node_properties$node_size = as.numeric(cut(node_properties$node_score, breaks = c(0,3,10,30)))
 node_properties$node_size[is.na(node_properties$node_size)] <- 1
 node_properties$node_size <- 2^(node_properties$node_size)
 
@@ -1083,10 +1260,10 @@ set.edge.attribute(B, "line_type", ifelse((as.factor(B %e% "type") == "met->met"
 
 tmp.sizes <- B %e% "weight"
 
-tmp.sizes[B %e% "type" != "met->met"] <- as.numeric(cut(abs(tmp.sizes[B %e% "type" != "met->met"]),breaks = qnorm(c(0.5, 1-0.05/2, 1-0.01/2, 1))))
+tmp.sizes[B %e% "type" != "met->met"] <- as.numeric(cut(abs(tmp.sizes[B %e% "type" != "met->met"]),breaks = qnorm(c(0.5, 1-0.05, 1-0.01, 1))))
 tmp.sizes[B %e% "type" == "met->met"] <- 1
 set.edge.attribute(B, "edge_size", (2^tmp.sizes)/5)
-
+set.seed(123)
 p.metabolite_picture <- ggnet2(B, label.size = 3, edge.alpha = 1,
                            label = T, 
                            color = "color",
@@ -1125,11 +1302,12 @@ set.edge.attribute(B1, "line_type", ifelse((as.factor(B1 %e% "type") == "met->me
 
 tmp.sizes <- B1 %e% "weight"
 
-tmp.sizes[B1 %e% "type" != "met->met"] <- as.numeric(cut(abs(tmp.sizes[B1 %e% "type" != "met->met"]),breaks = qnorm(c(0.5, 1-0.05/2, 1-0.01/2, 1))))
+tmp.sizes[B1 %e% "type" != "met->met"] <- as.numeric(cut(abs(tmp.sizes[B1 %e% "type" != "met->met"]),breaks = qnorm(c(0.5, 1-0.05, 1-0.01, 1))))
 tmp.sizes[B1 %e% "type" == "met->met"] <- 1
 set.edge.attribute(B1, "edge_size", (2^tmp.sizes)/5)
+set.seed(123)
 
-p.kinase_picture <- ggnet2(B1, label.size = 3, edge.alpha = 1,
+p.kinase_picture <- ggnet2(B1, label.size = 3, edge.alpha = 1, arrow.size = 1, 
                                label = T, 
                                color = "color",
                                edge.size = "edge_size",
@@ -1209,169 +1387,112 @@ p.network_overlaps <- ggplot(toPlot, aes(x=fraction, fill=degree)) +
   theme(legend.position = c(0.5,0.5))
   
 
-# -- kinase specificity ----------
-
-load("./R/objects/all_final_models.importance.models_summary2.RData")
-load("./R/objects/all_final_models.models_summary2.RData")
-load("./R/objects/file.list.models_summary2.RData")
-load("./R/objects/proteins.matrix.combat.quant.FC.RData")
-load("./R/objects/proteins.matrix.combat.quant.RData")
-
-metabolites.models.long <- all_final_models %>% 
-  filter(isImputed == 0, metabolite != "Glu") %>%
-  dplyr::select(model, RMSE, Rsquared, normalization, dataset, metabolite, degree, preprocessing) %>% 
-  distinct() %>%
-  group_by(metabolite, normalization, degree, preprocessing) %>%
-  #group_by(metabolite) %>%
-  filter(RMSE == min(RMSE,na.rm = T)) %>%
-  group_by(metabolite) %>% filter(degree < 5) %>%
-  filter(Rsquared == max(Rsquared,na.rm = T))
-
-
-predictors.dataset <- left_join(metabolites.models.long, all_final_models.importance) 
-
-metabolite.predictors <- predictors.dataset %>% filter(Overall >= 50) %>%
-  dplyr::select(metabolite, degree, gene ) %>% group_by(metabolite, degree, gene) %>% distinct()
-
-protein.matrix = proteins.matrix.combat.quant
-proteins.FC = proteins.matrix.combat.quant.FC
-
-reference = unique(as.character(proteins.FC$reference))
-
-pval_thr = 0.01
-
-FC_thr = getFC_thr(proteins.matrix=protein.matrix, pval_thr=pval_thr)
-
-load("./R/objects/KEGG.pathways.analysis1.RData")
-EC.genes = gene.annotations[gene.annotations$V3 == "EC number",]
-
-selected = c("Amino acid metabolism",                       
-             "Carbohydrate metabolism",                                          
-             "Energy metabolism",                                      
-             "Glycan biosynthesis and metabolism",                                    
-             "Metabolism of cofactors and vitamins",       
-             "Metabolism of other amino acids",                
-             "Nucleotide metabolism",                                                         
-             "Metabolism of terpenoids and polyketides",
-             "Biosynthesis of other secondary metabolites",
-             "Lipid metabolism")
-
-KEGG.pathways.f = droplevels(KEGG.pathways[KEGG.pathways$B %in% selected,])
-
-proteins.FC.f = proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
-proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
-proteins.FC.f$isEnzyme = proteins.FC.f$ORF %in% unique(EC.genes$V4)
-proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
-
-all_measured_enzymes <- as.vector((proteins.FC.f %>% filter(isMetabolic ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
-
-
-proteins.FC.f.stats <- proteins.FC.f %>% 
-  group_by(KO) %>%
-  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
-    summarize(n_metabolic = sum(isMetabolic == T),
-              n_yeast  = sum(isiMM904),
-              n_total = n())
-
-changed.genes <- proteins.FC.f %>% 
-  group_by(KO) %>% arrange() %>%
-  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>%
-  dplyr::select(ORF, KO)
-
-metabolite.predictors <- metabolite.predictors %>%
-  group_by(metabolite, degree) %>%
-    mutate(n_predictors = n())
-
-changed.predictors <- inner_join(metabolite.predictors, changed.genes, by = c("gene" = "ORF" ))
-  
-
-kinase.distances <- ddply(changed.predictors, .(metabolite, degree, n_predictors), 
-      .fun = function(x) {
-        tmp.df <- dcast(data = x, formula = "KO ~ gene", fun.aggregate = length)
-        tmp.matrix <- as.matrix(tmp.df[,-1])
-        rownames(tmp.matrix) = tmp.df[,1]
-        d = dist(tmp.matrix, method = "binary")
-        d.matrix <- as.matrix(d)
-        d.matrix[upper.tri(d.matrix)] <- NA
-        diag(d.matrix) <- NA
-        return(melt(d.matrix))
-
-      } )
-
-metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
-metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
-
-toPlot <- kinase.distances %>% filter(metabolite %in% metabolite.order$metabolite, n_predictors >= 5)
-
-toPlot.stats <- toPlot %>% 
-  group_by(metabolite) %>%
-  summarise(median = median(value, na.rm = T)) %>% 
-  ungroup() %>%
-  arrange(median)
-  
-toPlot$metabolite <- factor(toPlot$metabolite, levels = toPlot.stats$metabolite)
-p.specificity <- ggplot(toPlot, aes(x = 1 - value)) +
-  geom_density(fill="black") +
-  facet_grid(metabolite ~ . ) +
-  xlab("Predictors perturbation similarity following kinase deletion,\nJaccard index") +
-  theme(axis.line.y=element_blank(),
-        axis.text.y=element_blank(),
-        axis.ticks.y=element_blank(),
-        axis.title.y=element_blank(),
-        strip.text.y = element_text(angle=0),
-        strip.background = element_rect(colour = NULL))
-
 
 
 # ---- Figure3 --------------
+
+plot_figure3_v1 <- function() {
+  grid.newpage() 
+  pushViewport(viewport(layout = grid.layout(90, 60)))
+  grid.text("A", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  print(p.energy, vp = viewport(layout.pos.row = 1:45, layout.pos.col = 1:10)) #energy metabolites R
+  
+  grid.text("B", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 21),gp=gpar(fontsize=20, col="black"))
+  print(p.all_met, vp = viewport(layout.pos.row = 1:45, layout.pos.col = 11:30)) #all R
+  
+  grid.text("C", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=20, col="black"))
+  print(p.enzymes, vp = viewport(layout.pos.row = 24:45, layout.pos.col = 31:45)) #example heatmap of glutamine
+  print(p.met, vp = viewport(layout.pos.row = 24:45, layout.pos.col = 46:60)) #same
+}
 
 file_name = "Figure3_v01_scripted.pdf"
 file_path = paste(figures_dir, file_name, sep="/")
 
 pdf(file_path, height=247/25.4*2, width=183/25.4*2)
-
-grid.newpage() 
-pushViewport(viewport(layout = grid.layout(90, 60)))
-grid.text("A", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
-print(p.energy, vp = viewport(layout.pos.row = 1:45, layout.pos.col = 1:10)) #all metaoblites R
-
-grid.text("B", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 21),gp=gpar(fontsize=20, col="black"))
-print(p.all_met, vp = viewport(layout.pos.row = 1:45, layout.pos.col = 11:30)) #graph with kinases
-
-grid.text("C", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=20, col="black"))
-print(p.enzymes, vp = viewport(layout.pos.row = 24:45, layout.pos.col = 31:45)) #graph with kinases
-print(p.met, vp = viewport(layout.pos.row = 24:45, layout.pos.col = 46:60)) #graph with kinases
-
+  plot_figure3_v1()
 dev.off()
 
 
+file_name = "Figure3_v01_scripted.png"
+file_path = paste(figures_dir, file_name, sep="/")
+
+png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
+  plot_figure3_v1()
+dev.off()
+
+
+plot_figure3_v2 <- function() {
+  grid.newpage() 
+  pushViewport(viewport(layout = grid.layout(90, 60)))
+  grid.text("A", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  print(p.energy, vp = viewport(layout.pos.row = 1:45, layout.pos.col = 1:10)) #energy metabolites R
+  grid.text("B", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 11),gp=gpar(fontsize=20, col="black"))
+  print(p.all_met, vp = viewport(layout.pos.row = 1:45, layout.pos.col = 11:30)) #all R
+  
+  grid.text("C", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 31),gp=gpar(fontsize=20, col="black"))
+  print(p.enzymes, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 46:60)) #example heatmap of glutamine
+  print(p.met, vp = viewport(layout.pos.row = 16:30, layout.pos.col = 46:60)) #same
+  
+  print(p.trna, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 31:46)) #example heatmap of glutamine
+  print(p.aatca, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 46:60)) #same
+}
+
+file_name = "Figure3_v02_scripted.pdf"
+file_path = paste(figures_dir, file_name, sep="/")
+
+pdf(file_path, height=247/25.4*2, width=183/25.4*2)
+plot_figure3_v2()
+dev.off()
+
+
+file_name = "Figure3_v02_scripted.png"
+file_path = paste(figures_dir, file_name, sep="/")
+
+png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
+plot_figure3_v2()
+dev.off()
+
+
+
 # ---- Figure4 --------------
+
+
+plot_figure4_v1 <- function() {
+  
+  grid.newpage() 
+  pushViewport(viewport(layout = grid.layout(90, 60)))
+  grid.text("A", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=14, col="black"))
+  print(p.cv, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #all metaoblites R
+  
+  grid.text("B", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=14, col="black"))
+  print(p.cv.boxplots, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 41:50)) #boxplots of Rs vs degree
+  
+  grid.text("C", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 51),gp=gpar(fontsize=14, col="black"))
+  print(p.overlaps, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 51:60)) #boxplots of Rs vs degree
+  
+  grid.text("D", just=c("left", "centre"), vp = viewport(layout.pos.row = 16, layout.pos.col = 51),gp=gpar(fontsize=14, col="black"))
+  print(p.network_overlaps, vp = viewport(layout.pos.row = 15:30, layout.pos.col = 51:60)) #boxplots of Rs vs degree
+  
+  
+  print(p.metabolite_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col = 1:30))
+  print(p.kinase_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col = 31:60))
+  
+}
 
 file_name = "Figure4_v01_scripted.pdf"
 file_path = paste(figures_dir, file_name, sep="/")
 
 pdf(file_path, height=247/25.4*2, width=183/25.4*2)
-
-grid.newpage() 
-pushViewport(viewport(layout = grid.layout(90, 60)))
-grid.text("A", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=14, col="black"))
-print(p.cv, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #all metaoblites R
-
-grid.text("B", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=14, col="black"))
-print(p.cv.boxplots, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 41:50)) #boxplots of Rs vs degree
-
-grid.text("C", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 51),gp=gpar(fontsize=14, col="black"))
-print(p.overlaps, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 51:60)) #boxplots of Rs vs degree
-
-grid.text("D", just=c("left", "centre"), vp = viewport(layout.pos.row = 16, layout.pos.col = 51),gp=gpar(fontsize=14, col="black"))
-print(p.network_overlaps, vp = viewport(layout.pos.row = 15:30, layout.pos.col = 51:60)) #boxplots of Rs vs degree
-
-
-print(p.metabolite_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col = 1:30))
-print(p.kinase_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col = 31:60))
-
+  plot_figure4_v1()
 dev.off()
 
+
+file_name = "Figure4_v01_scripted.png"
+file_path = paste(figures_dir, file_name, sep="/")
+
+png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
+  plot_figure4_v1()
+dev.off()
 
 
 
