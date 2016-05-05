@@ -127,7 +127,7 @@ p.pack_man <- ggplot(toPlot, aes(x="", y=pathways_coverage, fill=A)) +
   ylab("")
 
 toPlot <- KEGG.pathways.stats.f %>% filter(EC.coverage > 0) %>%
-  select(A, EC.coverage, EC.active.inData) %>%
+  dplyr::select(A, EC.coverage, EC.active.inData) %>%
   gather(stats, coverage, -A) %>%
   group_by(stats) %>%
     summarise(MEAN_coverage = mean(coverage, na.rm = T))
@@ -142,6 +142,19 @@ p.mean_cov <- ggplot(toPlot, aes(x=stats, y=MEAN_coverage)) +
                   labels = c("Overall", "Active")) +
   theme_bw() +
   theme(legend.position = "none")
+
+## for pathways figure
+toSave <- KEGG.pathways.stats
+toSave$label <- sub(x = toSave$pathway, pattern = "path:sce", replacement = "")
+
+toSave <- toSave %>% filter(EC.coverage > 0.3) %>% dplyr::select(label )
+
+
+file_name = paste("KEGG_pathways_highlight", fun_name, "csv", sep = ".")
+file_path = paste(suppl_dir, file_name, sep="/")
+write.csv(x = toSave, file = file_path, row.names = F, quote = F, eol = "\n", col.names = NA)
+
+
 
 ## -- CVs of mix samples -----
 
@@ -225,8 +238,9 @@ toSave$ORF.name <- orf2name$gene_name[match(toSave$ORF, orf2name$ORF)]
 toSave$KO.name <- orf2name$gene_name[match(toSave$KO, orf2name$ORF)]
 
 toSave <- toSave %>% 
-  select(ORF, ORF.name, KO, KO.name, logFC, p.value, p.value_BH, p.value_bonferroni, isMetabolic, reference) %>%
+  dplyr::select(ORF, ORF.name, KO, KO.name, logFC, p.value, p.value_BH, p.value_bonferroni, isMetabolic, reference) %>%
   arrange(KO)
+
 file_name = paste("supplementary_file1", fun_name, "csv", sep = ".")
 file_path = paste(suppl_dir, file_name, sep="/")
 write.csv(x = toSave, file = file_path, row.names = F,  eol = "\n")
@@ -250,6 +264,7 @@ proteins.FC.stats = data.frame( ratio_sign = round(sum(proteins.FC$logFC < -FC_t
                                 y_max =max(-log10(proteins.FC$p.value_BH)))
 
 toPlot$sign = ifelse(abs(toPlot$logFC) >= FC_thr & toPlot$p.value_BH < pval_thr, 1,0)
+
 
 
 p1 = ggplot(toPlot, aes(y=-log10(p.value_BH), x=logFC)) +
@@ -304,12 +319,14 @@ s.kinase_boxplot_all <- ggplot(toPlot, aes(x=label, y = logFC)) +
 
 toPlot.stats <- toPlot %>% group_by(KO, isiMM904) %>%
   summarize(diff_range = diff(range(logFC, na.rm=T)),
-            diff_IQR = IQR(logFC, na.rm=T))
+            diff_IQR = IQR(logFC, na.rm=T)) %>% ungroup() %>% arrange(-diff_IQR) 
   
 #plots.list <- lappend(plots.list, s.kinase_boxplot_all)
 toPlot.stats.res <- t.test(toPlot.stats$diff_IQR[toPlot.stats$isiMM904 == T], toPlot.stats$diff_IQR[toPlot.stats$isiMM904 == F])
+toPlot$KO <- factor(toPlot$KO, levels = unique(as.character(toPlot.stats$KO)))
 
-s.kinase_boxplot_metabolic <- ggplot(toPlot, aes(x=label, y = logFC, fill = isiMM904)) + 
+
+s.kinase_boxplot_metabolic <- ggplot(toPlot, aes(x = label, y = logFC, fill = isiMM904)) + 
   stat_boxplot(geom ='errorbar', width = 0.5) +
   #geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
   geom_boxplot() + 
@@ -324,16 +341,50 @@ s.kinase_boxplot_metabolic <- ggplot(toPlot, aes(x=label, y = logFC, fill = isiM
   #scale_x_discrete(labels = as.vector(my_labels)) +
   theme_bw() + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position=c(0.8, 0.2), aspect.ratio = 5/8)
-  
-
 
 s.kinase_boxplot_metabolic$toScale <- T
 plots.list <- lappend(plots.list, s.kinase_boxplot_metabolic)
+
+
+
+toPlot.stats <- toPlot %>% group_by(KO) %>%
+  summarize(diff_range = diff(range(logFC, na.rm=T)),
+            sign = sum(sign),
+            diff_IQR = IQR(logFC, na.rm=T)) %>% ungroup() %>% arrange(-diff_IQR) 
+
+toPlot$KO <- factor(toPlot$KO, levels = unique(as.character(toPlot.stats$KO)))
+s.kinase_boxplot_all <- ggplot(toPlot, aes(x=KO, y = logFC)) + 
+  stat_boxplot(geom ='errorbar', width = 0.5) +
+  #geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
+  geom_boxplot() + 
+  #annotate("text", x = 80, y = 2, label = round(toPlot.stats.res$p.value,2)) +
+  #geom_text(data = NA, aes(x=1, y= -2, label = round(toPlot.stats.res$p.value,2))) +
+  scale_fill_grey(name=paste("is metabolic enzyme?",  "p-value", " = ", round(toPlot.stats.res$p.value,2), sep = ""),
+                  breaks=c(T, F),
+                  labels=c("TRUE", "FALSE")) +
+  xlab("Kinase mutant") +
+  ylab(expression(paste("Protein expression, ", log[2], "(mutant/wild-type)", sep=""))) +
+  ylim(-4, 4) +
+  #scale_x_discrete(labels = as.vector(my_labels)) +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position=c(0.8, 0.2), aspect.ratio = 5/8)
+
+
+toPlot.stats$label <- as.character(exp_metadata$gene[match(toPlot.stats$KO, exp_metadata$ORF)])
+toSave <- toPlot.stats
+file_name = paste("kinase_mutant_stats", fun_name, "csv", sep = ".")
+file_path = paste(suppl_dir, file_name, sep="/")
+write.table(x = toSave, file = file_path, row.names = F, quote = F, eol = "\n", col.names = T, sep = "\t")
+
+s.kinase_boxplot_all$toScale <- T
+plots.list <- lappend(plots.list, s.kinase_boxplot_all)
+
+
 # IRT chromatogram stability ------------------
 
 load("./R/objects/dataset_irt_openswath._clean_.RData")
 toPlot <- dataset_irt_openswath %>% 
-  select(Sequence, filename, RT, ProteinName, m_score) %>% 
+  dplyr::select(Sequence, filename, RT, ProteinName, m_score) %>% 
   filter(m_score < 0.01,  ProteinName == "1/Biognosys_iRT") %>% distinct()
 
 toPlot$sample_name <- sub(pattern = ".mzML", x = basename(toPlot$filename), replacement = "")
@@ -621,6 +672,123 @@ p.batch <- ggplot(scores, aes(x=PC1, y=PC2)) +
 
 plots.list <- lappend(plots.list, p.batch)
 
+
+## ---- cophenetic correlation -----------
+library(dendextend)
+load("./R/objects/dataPPP_AA.imputed.create_datasets.RData")
+
+
+left_data <- scale(dataPPP_AA.imputed$proteins.log.quant)
+right_data <- scale(dataPPP_AA.imputed$metabolites)
+
+rownames(left_data) <- exp_metadata$gene[match(rownames(left_data), exp_metadata$ORF)]
+rownames(right_data) <- exp_metadata$gene[match(rownames(right_data), exp_metadata$ORF)]
+
+d_left <- left_data %>% dist %>% hclust %>% as.dendrogram
+d_right <- right_data %>% dist %>% hclust %>% as.dendrogram
+d_left_right <- dendlist(proteome = d_left, metabolome = d_right)
+
+plot(d_left_right, main_left = names(d_left_right)[1], 
+     main_right = names(d_left_right)[2], 
+     sub = paste("Cophenetic correlation =", format(cor_cophenetic(d_left_right), digits = 2, scientific = T)), 
+     cex_main_left = 0.85, cex_main_right = 0.85,
+     cex_sub = 0.75)
+
+p = recordPlot()
+plots.list = lappend(plots.list, p)
+
+
+### ---- sentinels ------
+load("./R/objects/sentinels.proteins.matrix.quant.combat.FC.RData")
+load("./R/objects/sentinels.proteins.matrix.quant.combat.RData")
+
+load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+load("./R/objects/proteins.matrix.combat.quant.RData")
+load("./R/objects/iMM904._load_.RData")
+
+protein.matrix = proteins.matrix.combat.quant
+proteins.FC = sentinels.proteins.matrix.quant.combat.FC
+
+proteins.FC$gene_name <- orf2name$gene_name[match(proteins.FC$ORF, orf2name$ORF)]
+reference = unique(as.character(proteins.FC$reference))
+proteins.FC.f = proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
+
+pval_thr = 0.01
+set.seed(123)
+FC_thr = getFC_thr(proteins.matrix=protein.matrix, pval_thr=pval_thr)
+
+
+sentinels.table$short_info <- sub(pattern = "Marker for ", replacement = "", x = sentinels.table$Sentinel)
+sentinels.table$short_info <- trimws(sentinels.table$short_info)
+sentinels.table$ORF.ID <- trim(sentinels.table$ORF.ID)
+
+proteins.FC.f$KO.gene <- exp_metadata$gene[match(proteins.FC.f$KO, exp_metadata$ORF)]
+
+toPlot <- proteins.FC.f %>% 
+  filter(ORF != "iRT", abs(logFC) > FC_thr, p.value_BH < pval_thr) %>%
+  group_by(KO) %>%
+  mutate(sign = n()) %>%
+  group_by(ORF) %>%
+  mutate(popularity = n()) %>%
+  filter(popularity >=10, sign >= 15)
+
+sentinels_desc_collapsed = sentinels.table %>% dplyr::select(ORF.ID, short_info) %>% distinct() %>%
+  filter(ORF.ID %in% toPlot$ORF) %>%
+  group_by(short_info) %>%
+  mutate(info_n = n()) %>%
+  group_by(ORF.ID) %>%
+  summarise(description_full = paste(sort(short_info),  collapse = "|"),
+            description = ifelse(length(short_info) > 2, "multiple", paste(sort(short_info),  collapse = "|")),
+            popular_info = paste(max(info_n), short_info[which.max(info_n)], collapse = ":" )) %>% 
+  ungroup %>% 
+  arrange(popular_info)
+
+sentinels_desc_single = sentinels.table %>% dplyr::select(ORF.ID, short_info) %>%  filter(ORF.ID %in% toPlot$ORF) %>% distinct()
+
+
+lb = -2.5
+ub = 2.5
+
+my_breaks <- seq(lb, ub, 0.5)
+my_breaks[5] <- FC_thr
+my_breaks[7] <- -FC_thr
+my_levels = levels(cut(toPlot$logFC, breaks = my_breaks))
+
+my_colours1 <- brewer.pal(name = "Reds", n = 4)
+my_colours2 <- rev(brewer.pal(name = "Blues", n = 4))
+my_colours = c(my_colours2, my_colours1)
+
+toPlot$my_fill <- as.character(cut(toPlot$logFC, breaks = my_breaks))
+toPlot$my_fill[which(is.na(toPlot$my_fill))] <- ifelse(toPlot$logFC[which(is.na(toPlot$my_fill))] <= lb, lb, ub)
+toPlot$my_fill <- factor(toPlot$my_fill, levels = my_levels)
+
+toPlot$info <- sentinels_desc_collapsed$description[match(toPlot$ORF, sentinels_desc_collapsed$ORF.ID)]
+toPlot$sentinel <- paste(toPlot$info, toPlot$gene_name, sep = "::")
+
+toPlot$popular_info <- sentinels_desc_collapsed$popular_info[match(toPlot$ORF, sentinels_desc_collapsed$ORF.ID)]
+toPlot$sentinel_popular <- paste(toPlot$popular_info, toPlot$gene_name, sep = "::")
+
+# sorted = sort(unique(toPlot$sentinel))
+# sorted <- c(sorted[grep("multiple", x = sorted, invert = T)], sorted[grep("multiple", x = sorted)])
+#toPlot$sentinel <- factor(toPlot$sentinel, levels = rev(sorted))
+sorted <- sort(unique(toPlot$sentinel_popular))
+sorted <- sorted[c(grep(12, sorted,invert =T), grep(12, sorted))]
+toPlot$sentinel_popular <- factor(toPlot$sentinel_popular, levels = sorted)
+
+p.heatmap_sentinels <- ggplot(toPlot) +  
+  geom_tile(aes(x = KO.gene, y = sentinel_popular, fill = my_fill ), colour="grey") +
+  #   scale_fill_gradient2(low="#1F78B4",high="#E31A1C",mid ="white",
+  #                        breaks = seq(-0.75, 0.75, 0.25),
+  #                        midpoint=0)  +
+  scale_fill_manual(values = my_colours) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+        legend.position = c(0.2, 0.8) ) +
+  labs(x="", y = "")
+
+
+
+
 ## ----- figure version 1 --------
 
 plot_figure_v1 <- function () {
@@ -695,21 +863,33 @@ file_path = paste(figures_dir, file_name, sep="/")
 
 lapply(seq_along(plots.list) , 
        function(x) {
-         
-         tryCatch({
-           p <- plots.list[[x]]
-           scale = 1
-           if (length(p$toScale) != 0 && p$toScale == T  ){
+        tryCatch({
+          p <- plots.list[[x]]
+           
+          scale = 1
+          if (length(p$toScale) != 0 && p$toScale == T){
              scale = 2
-           }
-           ggplot2::ggsave(filename = paste(file_path, x , "pdf", sep = "."), device = NULL,
-                           plot = p, width = 210 , height = 297, units = "mm", scale = scale)
+          }
+          
+          if(any(grep("^g",class(p)))) {
+             ggplot2::ggsave(filename = paste(file_path, x , "pdf", sep = "."), device = NULL,
+                             plot = p, width = 210 , height = 297, units = "mm", scale = scale)
+            ggplot2::ggsave(filename = paste(file_path, x , "png", sep = "."), device = NULL, dpi = 150,
+                            plot = p, width = 210 , height = 297, units = "mm", scale = scale)  
+          } else {
+              pdf(file = paste(file_path, x , "pdf", sep = "."), width = 210*0.039 , height = 297*0.039)
+              par(cex = 0.8)
+              print(p)
+              
+              png(file = paste(file_path, x , "pdf", sep = "."), width = 210*0.039 , height = 297*0.039, res = 150)
+              par(cex = 0.8)
+              print(p)
+            dev.off()
+          }
          }, error = function(e) {
-           message(paste("Plot", "x", "sucks!" ))
+           message(paste("Plot", x, "sucks!" ))
            return(NULL)
          }, finally = {
            message(paste("processed plot", x))
          })
-         
-         
        })
