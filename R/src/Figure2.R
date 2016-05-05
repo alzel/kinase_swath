@@ -55,9 +55,21 @@ proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
 proteins.FC.f$isEnzyme = proteins.FC.f$ORF %in% unique(EC.genes$V4)
 proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
 
-
 all_proteins <- as.character(unique(proteins.FC.f$ORF))
 all_measured_enzymes <- as.vector((proteins.FC.f %>% filter(isiMM904 ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
+
+proteins.FC.f.metabolic <- tbl_df(proteins.FC.f) %>% 
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr, isiMM904 == T)
+
+proteins.FC.f.metabolic$KO.gene <- orf2name$gene_name[match(proteins.FC.f.metabolic$KO, orf2name$ORF)]
+stopifnot(!any(is.na(proteins.FC.f.metabolic$KO.gene)))
+
+FC.f.metabolic.stats <- proteins.FC.f.metabolic %>% 
+  group_by(KO.gene) %>% 
+  summarise(n = n(),
+            n_pos = sum(logFC > 0)/length(all_measured_enzymes),
+            n_neg = sum(logFC < 0)/length(all_measured_enzymes)) %>% 
+  ungroup() %>% arrange(n)
 
 
 # -- PPI and other networks ----- 
@@ -142,7 +154,6 @@ toPlot.stats <- toPlot %>%
   arrange(median)
 
 
-
 toPlot$metabolite <- factor(toPlot$metabolite, levels = rev(toPlot.stats$metabolite))
 
 toPlot$metabolite.label <- factor(toPlot$metabolite.label, levels = rev(unique(toPlot.stats$metabolite.label)))
@@ -194,7 +205,20 @@ p.specificity_hist <- ggplot(toPlot, aes(x = 1 - value)) +
 
 
 
-# --- constant fraction ------------------
+# --- constant fraction & saturation ------------------
+
+proteins.FC.f = proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
+proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
+proteins.FC.f$isEnzyme = proteins.FC.f$ORF %in% unique(EC.genes$V4)
+proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
+
+proteins.FC.f.stats <- proteins.FC.f %>% 
+  group_by(KO) %>%
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
+  summarize(n_metabolic = sum(isMetabolic == T),
+            n_yeast  = sum(isiMM904),
+            n_total = n())
+
 proteins.FC.f.stats$n_yeast_fraction <- proteins.FC.f.stats$n_metabolic/proteins.FC.f.stats$n_total
 toPlot <- proteins.FC.f.stats 
 p.constant_fraction <- ggplot(toPlot, aes(x = n_total, y = n_yeast_fraction)) +
@@ -204,15 +228,84 @@ p.constant_fraction <- ggplot(toPlot, aes(x = n_total, y = n_yeast_fraction)) +
   ylab("Fraction of metabolic enzymes affected by kinase") +
   theme_bw()
 
-
-## ------ enzyme overlaps --------
+all_proteins <- as.character(unique(proteins.FC.f$ORF))
+all_measured_enzymes <- as.vector((proteins.FC.f %>% filter(isiMM904 ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
 
 proteins.FC.f.metabolic <- tbl_df(proteins.FC.f) %>% 
   filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr, isiMM904 == T)
 
-# all enzymes
 proteins.FC.f.metabolic$KO.gene <- orf2name$gene_name[match(proteins.FC.f.metabolic$KO, orf2name$ORF)]
 stopifnot(!any(is.na(proteins.FC.f.metabolic$KO.gene)))
+
+FC.f.metabolic.stats <- proteins.FC.f.metabolic %>% 
+  group_by(KO.gene) %>% 
+  summarise(n = n(),
+            n_pos = sum(logFC > 0)/length(all_measured_enzymes),
+            n_neg = sum(logFC < 0)/length(all_measured_enzymes)) %>% 
+  ungroup() %>% arrange(n)
+
+combinations <- combn(unique(proteins.FC.f.metabolic$KO), 2)
+combinations.df <- as.data.frame(t(combinations))
+
+KO.genes <- proteins.FC.f.metabolic %>% dplyr::select(KO, ORF) %>% distinct()
+
+
+overlaps <- ddply(combinations.df, .(V1, V2),
+                  
+                  .fun = function(x) {
+                    df1 <- KO.genes %>% filter(KO == x$V1)
+                    df2 <- KO.genes %>% filter(KO == x$V2)
+                    
+                    result <- bind_rows(df1, df2) %>% 
+                      group_by(ORF) %>%
+                      summarise(gene_n = n()) %>% 
+                      summarize(intersection = sum(gene_n == 2),
+                                union = n(),
+                                overlap = intersection/union)
+                    
+                    
+                    return(result)
+                  }  )
+
+overlaps.stats <- overlaps %>% group_by(V1) %>%
+  summarize(mean.intersection = mean(intersection, na.rm=T)) %>%
+  mutate(gene_name = orf2name$gene_name[match(V1, orf2name$ORF)]) %>%
+  left_join(FC.f.metabolic.stats, by = c("gene_name" = "KO.gene"))
+
+overlaps.stats$degree <- igraph::degree(GRAPH)[match(overlaps.stats$V1, names(igraph::degree(GRAPH)))]
+
+toPlot <- overlaps.stats %>% 
+  ungroup() %>% 
+  mutate(n_fraction = n/length(all_measured_enzymes),
+         mean.intersection_fraction = mean.intersection/length(all_measured_enzymes))
+library(splines)
+
+p.saturation <- ggplot(toPlot, aes(x = n_fraction, y = mean.intersection_fraction)) +
+  geom_point(aes(size =degree)) +
+  stat_smooth(method = "lm", formula=y~ns(x,2), se=F) +
+  scale_size(range = c(1, 5)) +
+  theme_bw() +
+  xlab("Fraction of perturbed metabolic network, %") +
+  theme(legend.position = c(0.7, 0.5))
+
+
+toText <- cor.test(toPlot$degree, toPlot$n_fraction, use = "pairwise.complete.obs" )
+
+p.degree_vs_metabolic <- ggplot(toPlot, aes(x=degree, y = n_fraction)) +
+  geom_point() + 
+  annotate(geom = "text", x = 100, y=0.4, 
+           label = paste("r = ", round(toText$estimate,2), " p-value = ", round(toText$p.value,2), sep="")) +
+  theme_bw() + theme(aspect.ratio = 1) +
+  xlab("Number of protein-protein interactions kinase involved") +
+  ylab("Perturbed fraction of metabolic network")
+
+plots.list <- lappend(plots.list, p.degree_vs_metabolic)
+
+
+## ------ enzyme overlaps --------
+
+# all enzymes
+
 
 x = proteins.FC.f.metabolic
 x.wide <- dcast(x, "KO.gene ~ ORF", value.var = "logFC")
@@ -244,13 +337,6 @@ x.wide.matrix <- ifelse(x.wide.matrix != 0, 1, 0)
 
 d.matrix.down <- 1 - as.matrix(dist(x.wide.matrix, method = "binary"))
 
-
-FC.f.metabolic.stats <- proteins.FC.f.metabolic %>% 
-  group_by(KO.gene) %>% 
-  summarise(n = n(),
-            n_pos = sum(logFC > 0)/length(all_measured_enzymes),
-            n_neg = sum(logFC < 0)/length(all_measured_enzymes)) %>% 
-  ungroup() %>% arrange(n)
 
 cl = hclust(dist(d.matrix.all))
 cl <- dendextend::rotate(cl, order = as.character(FC.f.metabolic.stats$KO.gene))
@@ -338,6 +424,27 @@ p.barplot = ggplot(toPlot, aes(x=KO.gene, y=value, fill=variable)) +
         axis.ticks.y = element_blank(),
         legend.position = c(0.7, 0.2))
 
+average.all <- d.matrix.all
+diag(average.all) <- NA
+average.all.df <- data.frame(KO.gene = rownames(average.all), 
+                  similarity = apply(average.all, 2, mean, na.rm = T))
+
+toPlot.line <- overlaps.stats %>% 
+  ungroup() %>% 
+  mutate(n_fraction = n/length(all_measured_enzymes),
+         mean.intersection_fraction = mean.intersection/length(all_measured_enzymes))
+
+p.barplot.line = ggplot() + 
+  geom_bar(data = toPlot, stat="identity", width=.5, aes(x=KO.gene, y=value, fill=variable)) + 
+  geom_line(data = toPlot.line, aes(x = gene_name, y=mean.intersection_fraction, group = 1)) +
+  #geom_point(data = toPlot.line, aes(x = gene_name, y=mean.intersection_fraction)) +
+  labs(x = "", y = "Fraction of perturbed metabolic network") +
+  coord_flip() + 
+  scale_fill_manual(values = my_colours[c(length(my_colours),1)]) +
+  theme_few() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = c(0.7, 0.2))
 
 p.barplot.h = ggplot(toPlot, aes(x=KO.gene, y=value, fill=variable)) + 
   geom_bar(stat="identity", width=.5) + 
@@ -704,64 +811,6 @@ s.similarities <- ggplot(toPlot, aes(y = similarity, x = dataset)) +
 plots.list <- lappend(plots.list, s.similarities)
 
 
-# --- saturation plots ---------------
-combinations <- combn(unique(proteins.FC.f.metabolic$KO), 2)
-combinations.df <- as.data.frame(t(combinations))
-
-KO.genes <- proteins.FC.f.metabolic %>% dplyr::select(KO, ORF) %>% distinct()
-
-
-overlaps <- ddply(combinations.df, .(V1, V2),
-                  
-                  .fun = function(x) {
-                    df1 <- KO.genes %>% filter(KO == x$V1)
-                    df2 <- KO.genes %>% filter(KO == x$V2)
-                    
-                    result <- bind_rows(df1, df2) %>% 
-                      group_by(ORF) %>%
-                      summarise(gene_n = n()) %>% 
-                      summarize(intersection = sum(gene_n == 2),
-                                union = n(),
-                                overlap = intersection/union)
-                   
-                    
-                    return(result)
-                  }  )
-
-overlaps.stats <- overlaps %>% group_by(V1) %>%
-  summarize(mean.intersection = mean(intersection, na.rm=T)) %>%
-  mutate(gene_name = orf2name$gene_name[match(V1, orf2name$ORF)]) %>%
-  left_join(FC.f.metabolic.stats, by = c("gene_name" = "KO.gene"))
-
-overlaps.stats$degree <- igraph::degree(GRAPH)[match(overlaps.stats$V1, names(igraph::degree(GRAPH)))]
-
-toPlot <- overlaps.stats %>% 
-  ungroup() %>% 
-  mutate(n_fraction = n/length(all_measured_enzymes),
-         mean.intersection_fraction = mean.intersection/length(all_measured_enzymes))
-library(splines)
-
-p.saturation <- ggplot(toPlot, aes(x = n_fraction, y = mean.intersection_fraction)) +
-  geom_point(aes(size =degree)) +
-  stat_smooth(method = "lm", formula=y~ns(x,2), se=F) +
-  scale_size(range = c(1, 5)) +
-  theme_bw() +
-  xlab("Fraction of perturbed metabolic network, %") +
-  theme(legend.position = c(0.7, 0.5))
-  
-  
-toText <- cor.test(toPlot$degree, toPlot$n_fraction, use = "pairwise.complete.obs" )
-
-p.degree_vs_metabolic <- ggplot(toPlot, aes(x=degree, y = n_fraction)) +
-  geom_point() + 
-  annotate(geom = "text", x = 100, y=0.4, 
-            label = paste("r = ", round(toText$estimate,2), " p-value = ", round(toText$p.value,2), sep="")) +
-  theme_bw() + theme(aspect.ratio = 1) +
-  xlab("Number of protein-protein interactions kinase involved") +
-  ylab("Perturbed fraction of metabolic network")
-
-plots.list <- lappend(plots.list, p.degree_vs_metabolic)
-
 
 
 
@@ -799,7 +848,6 @@ proteins.FC.f.stats = proteins.FC.f %>% filter(p.value_BH < pval_thr, abs(logFC)
 #proteins.FC.f.stats$KO %in% unique(yeastract)
 
 yeastract$TF_ORF = orf2name$ORF[match(yeastract$TF, orf2name$gene_name)]
-
 yeastract.stats = yeastract %>% group_by(TF, TF_ORF) %>% summarise(n = n()) #number of genes yeastract connected to
 
 TFs = unique(as.vector(GO_slim.raw$V1[grep(x=GO_slim.raw$V5, pattern="nucleic acid binding transcription factor activity")]))
@@ -847,17 +895,18 @@ control.min.paths.comb = proteins.FC.f.stats.long %>% filter(min.paths.comb == 0
 control.min.paths = proteins.FC.f.stats.long %>% filter(min.paths == 1)
 
 
-min.paths.comb.stats = proteins.FC.f.stats.long %>% filter(min.paths.comb != 0) %>% 
+min.paths.comb.stats = tbl_df(proteins.FC.f.stats.long %>% filter(min.paths.comb != 0)) %>% 
   group_by(min.paths.comb, variable) %>% 
   summarize( FC.mean = mean(value, na.rm=T)/mean(control.min.paths.comb[control.min.paths.comb[,5] == variable, "value"], na.rm=T),
              FC.median = median(value, na.rm=T)/median(control.min.paths.comb[control.min.paths.comb[,5] == variable, "value"], na.rm=T),
-             p.value = wilcox.test(value,control.min.paths.comb[control.min.paths.comb[,5] == variable, "value"])$p.value)
+             p.value = wilcox.test(value,control.min.paths.comb[control.min.paths.comb[,5] == variable, "value"])$'p.value')
+
 
 min.paths.stats = proteins.FC.f.stats.long %>% filter(min.paths != 1) %>% 
   group_by(min.paths, variable) %>% 
   summarize( FC.mean = mean(value, na.rm=T)/mean(control.min.paths[control.min.paths[,5] == variable, "value"], na.rm=T),
              FC.median = median(value, na.rm=T)/median(control.min.paths[control.min.paths[,5] == variable, "value"], na.rm=T),
-             p.value = wilcox.test(value, control.min.paths[control.min.paths[,5] == variable, "value"])$p.value)
+             p.value = wilcox.test(value, control.min.paths[control.min.paths[,5] == variable, "value"])$'p.value')
 
 
 min.paths.stats$symbol = ""
@@ -1063,17 +1112,30 @@ load("./R/objects/similarities.dataset.signaling_similarity.RData")
 toPlot <- similarities.dataset
 toPlot$sample_type <- factor(toPlot$sample_type, levels = c("signal", "random"))
 
-toPlot.stats <- tbl_df(toPlot) %>% group_by(sim_type, sample_type) %>% 
-  summarise(pval = (wilcox.test(value[sample_type == "signal"], value[sample_type == "random"]))$p.value )
+toPlot.stats <- tbl_df(toPlot) %>% group_by(sim_type) %>% 
+  summarise(pval = (wilcox.test(value[sample_type == "signal"], value[sample_type == "random"]))$'p.value' )
 
-ggplot(toPlot , aes(x = value, fill = sample_type)) +
-  geom_density(alpha = 0.5) +
+toText <- toPlot.stats %>% filter(sim_type == "overlap")
+p.similarities <- ggplot(toPlot %>% filter(sim_type == "overlap"), aes(x = value)) +
+  geom_density(aes( fill = sample_type), alpha = 0.5) +
   scale_x_continuous(breaks = seq(0,1, by = 0.25)) +
-  facet_wrap(~sim_type, scales = "free") +
+  xlab("Kinase mutaint pairs perturbation similarity, Jaccard index") + 
+  #facet_wrap(~sim_type, scales = "free") +
+  annotate(geom = "text", x=0.75, y = 1, label = paste("p-value=", format(toText$pval, digits=2, scientific=T)))+
   theme_bw() + 
   theme(legend.position = c(0.1, 0.5))
 
 
+s.similarities <- ggplot(toPlot, aes(x = value)) +
+  geom_density(aes( fill = sample_type), alpha = 0.5) +
+  scale_x_continuous(breaks = seq(0,1, by = 0.25)) +
+  xlab("Kinase mutaint pairs perturbation similarity") + 
+  facet_wrap(~sim_type, scales = "free") +
+  geom_text(data = toPlot.stats, aes(x=0.75, y = 1, label= paste("p-value=", format(pval, digits=2, scientific=T))))+
+  theme_bw() + 
+  theme(legend.position = c(0.1, 0.5), aspect.ratio = 1)
+
+plots.list <- lappend(plots.list, s.similarities)
 
 # -- Figure 2 -------
 
@@ -1081,24 +1143,24 @@ plot_figure_v2 <- function() {
   grid.newpage() 
   pushViewport(viewport(layout = grid.layout(135, 100)))
   
-  
   print(p.heatmap, vp = viewport(layout.pos.row = 1:80, layout.pos.col = 1:80)) #all overlaps of perturbations
   grid.text("a", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
-  print(p.barplot, vp = viewport(layout.pos.row = 1:80, layout.pos.col = 81:100))
+  print(p.barplot.line, vp = viewport(layout.pos.row = 1:80, layout.pos.col = 81:100))
   grid.text("b", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 81),gp=gpar(fontsize=20, col="black"))
-  print(p.kegg_enrich, vp = viewport(layout.pos.row = 80:100, layout.pos.col = 1:50))
-  grid.text("c", just=c("left", "centre"), vp = viewport(layout.pos.row = 80, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
-  print(p.saturation, vp = viewport(layout.pos.row = 80:95, layout.pos.col = 51:75))
-  grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 80, layout.pos.col = 51),gp=gpar(fontsize=20, col="black"))
-  print(p.constant_fraction, vp = viewport(layout.pos.row = 80:95, layout.pos.col = 76:100))
-  grid.text("e", just=c("left", "centre"), vp = viewport(layout.pos.row = 80, layout.pos.col = 76),gp=gpar(fontsize=20, col="black"))
-  print(p.specificity_hist, vp = viewport(layout.pos.row = 100:135, layout.pos.col = 1:66))
-  grid.text("f", just=c("left", "centre"), vp = viewport(layout.pos.row = 100, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
   
-  print(p.dist_changes, vp = viewport(layout.pos.row = 105:130, layout.pos.col = 67:77))
+  print(p.specificity_hist, vp = viewport(layout.pos.row = 80:115, layout.pos.col = 51:100))
+  grid.text("c", just=c("left", "centre"), vp = viewport(layout.pos.row = 80, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  
+  print(p.saturation, vp = viewport(layout.pos.row = 80:95, layout.pos.col = 1:25))
+  grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 80, layout.pos.col = 51),gp=gpar(fontsize=20, col="black"))
+  print(p.constant_fraction, vp = viewport(layout.pos.row = 80:95, layout.pos.col = 26:50))
+  grid.text("e", just=c("left", "centre"), vp = viewport(layout.pos.row = 80, layout.pos.col = 76),gp=gpar(fontsize=20, col="black"))
+  
+  print(p.dist_changes, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 1:11))
   grid.text("g", just=c("left", "centre"), vp = viewport(layout.pos.row = 100, layout.pos.col = 67),gp=gpar(fontsize=20, col="black"))
-  print(p.dist_degree, vp = viewport(layout.pos.row = 105:130, layout.pos.col = 78:88))
-  print(p.dist_between, vp = viewport(layout.pos.row = 105:130, layout.pos.col = 89:99))
+  print(p.dist_degree, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 12:23))
+  print(p.dist_between, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 24:35))
+  print(p.similarities, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 36:50))
   
 }
 
