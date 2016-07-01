@@ -328,7 +328,7 @@ rowFolds = function(data, groups, reference) {
     stop(paste("No such reference:", reference))
   }
   
-  stopifnot(length(levels(groups)) >=2)  
+  stopifnot(length(unique(groups)) >=2)  
     
   tmp_mat=data.frame(zero = rep(0,nrow(data)))
   ref_row = rowMeans(data[,ref_ind],na.rm=T)
@@ -712,9 +712,10 @@ repeatedCV = function(fit, repeats = 100) {
 
 getFC_thr = function(proteins.matrix = proteins.matrix.combat, pval_thr = 0.01) {
   
-  #proteins.matrix = proteins.matrix.combat
-  #pval_thr = 0.05
-  
+#   load("./R/objects/proteins.matrix.combat.RData")
+#   proteins.matrix = proteins.matrix.combat
+#   pval_thr = 0.01
+#   
   #checking WT samples to define FC
   
   exp_metadata$aquisition_date.str = as.POSIXct(strftime(exp_metadata$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
@@ -767,6 +768,7 @@ getFC_thr = function(proteins.matrix = proteins.matrix.combat, pval_thr = 0.01) 
   
   proteins.FC = merge(folds_tmp, pvals_tmp, all=T,
                       by=c("ORF", "contrasts"))
+  
   
   ##multiple testing correction
   proteins.FC$p.value_BH = p.adjust(proteins.FC$p.value, method="BH")
@@ -850,4 +852,57 @@ sample_removal <- function(fragments.tmp, fdr_thr1) {
   
   entity_removal$z_score = (entity_removal$N - mean(entity_removal$N))/sd(entity_removal$N)
   return(entity_removal)
+}
+
+
+
+untransform <- function(trans, data.transformed) {
+  
+  stopifnot(class(trans) == "preProcess")
+  ignored = c()
+  if (!is.null(trans$method)) {
+    methods <- unlist(as.list(my_models$trans$call$method)[-1])  
+  } else {
+    methods <- names(trans$method)
+    ignored <- trans$method$ignore
+  }
+  
+  new_data <- data.transformed[, !colnames(data.transformed) %in% ignored]
+  
+  if (any(methods == "pca")) {
+    new_data = as.matrix(new_data) %*% t(trans$rotation)
+  }
+  
+  if (any(methods == "scale")) {
+    new_data <- scale(new_data, center = FALSE , scale=1/trans$std)
+  }
+  
+  if (any(methods == "center")) {
+    new_data <- scale(new_data, center = -1 * trans$mean, scale=FALSE)
+  }
+  
+  if (any(methods == "BoxCox")) {
+    new_data <- sapply(names(trans$bc), 
+                       FUN = function(i) {
+                         inverse.BoxCoxTrans(object = trans$bc[[i]], newdata = new_data[,i])
+                       })  
+  } 
+  
+  new_data <- as.data.frame(new_data)
+  return (new_data)
+}
+
+inverse.BoxCoxTrans <- function(object, newdata) {
+  if(!is.vector(newdata) || !is.numeric(newdata)) stop("newdata should be a numeric vector")
+  if(is.na(object$lambda)) return(newdata) 
+  
+  lambda <- object$lambda
+  if(object$lambda < object$fudge & object$lambda > -object$fudge)
+    lambda <- 0
+  else if(object$lambda < 1 + object$fudge & object$lambda > 1 - object$fudge) {
+    #lambda <- 1
+    warning(paste("No transformation applied, lambda within the fudge", "lambda:", lambda, "tolerance:", object$fudge))
+    return(newdata)
+  }
+  if(lambda == 0) exp(newdata) else (lambda*newdata + 1)^(1/lambda) 
 }
