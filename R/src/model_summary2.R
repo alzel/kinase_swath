@@ -3,6 +3,8 @@ library(caret)
 source("./R/boot.R")
 source("./R/functions.R")
 
+
+
 #summarizes results from regression models from 2016-02-24
 # chooses best prediction models from different ML algorithm
 # makes graph file for cytoscape
@@ -31,7 +33,7 @@ read_models = function(x) {
   #x = matches[[1]]
   file_name = paste(input_path,x[[1]], sep="/") 
   my_models = get(load(file_name))
-  my_models$models
+  
   t = resamples(my_models$models)
   t.long = melt(t$values[,grep("Rsquared", names(t$values))],)
   t.long.stats = t.long %>% group_by(variable) %>% summarise(meanR2=mean(value, na.rm=T)) %>% arrange(meanR2)
@@ -47,7 +49,6 @@ read_models = function(x) {
   table$file =  x[[1]]
   return(table)
 }
-
 
 
 file.list = lapply(matches, FUN=read_models)
@@ -131,15 +132,14 @@ proteins.log = t(my_means(proteins.matrix.combat))
 
 read_models.caret.predict = function(x) {
   
-  
   file_name = paste(input_path, x[[1]], sep="/") 
   my_models = get(load(file_name))
-  
   
   bad_idx <- which(names(my_models$models) == "rfModel") #removing random forest, because of predict method
   
   models = my_models$models[-bad_idx]
   input_data = my_models$input_data[,-1]
+  
   trans.x <- my_models$trans.x
   new_data = NULL
   
@@ -153,12 +153,18 @@ read_models.caret.predict = function(x) {
   } else {
     message("raw") #if raw data, applying boxcox transformation model as in input_data
     new_data <- proteins.raw[,colnames(input_data)]
-    tmp.matrix = new_data
-    trans.BC = preProcess(x = input_data , method = c("BoxCox"))
-    new_data = predict(trans.BC, tmp.matrix)
+    
+    #trans.BC = preProcess(x = input_data , method = c("BoxCox"))
+    
+   # new_data2 = predict(trans.BC, tmp.matrix)
+    #transfroming all data using BoxCox estimated on training data    
+    new_data <- sapply(names(trans.x$bc), 
+           FUN = function(i) {
+             predict(object = trans.x$bc[[i]], newdata = new_data[,i])
+           }) 
   }
   
-  
+  # scaling and projecting new data to PCA space of training data  
   if (!is.null(trans.x)) {
     new_data <- new_data[,names(trans.x$mean)]
     new_data <- scale(new_data, center = trans.x$mean, scale = trans.x$std) %*% trans.x$rotation #all data projected into pca space
@@ -172,13 +178,56 @@ read_models.caret.predict = function(x) {
   models = models[train_idx]
   #getting model predictions
   predictions <- predict(models, as.data.frame(new_data))
-
+  
+  
+  ### untransforming predictors
+  response.trans  = my_models$trans
+  predictions.untransformed <- predictions
+  knockout_names <- names(predictions.untransformed[[which(any(!sapply(sapply(predictions.untransformed, names), is.null)))]])
+  
+  predictions.untransformed <- lapply(predictions.untransformed, 
+                                      FUN = function(x) {
+                                        tmp = as.vector(x)
+                                        names(tmp) = knockout_names
+                                        return(tmp)
+                                        })
+    
+    if(!is.null(response.trans$std)) {
+    predictions.untransformed <- lapply(predictions.untransformed, FUN = function(x) {
+      x*response.trans$std[1]
+    })
+  }
+  
+  if(!is.null(response.trans$mean)) {
+    predictions.untransformed <- lapply(predictions.untransformed, FUN = function(x) {
+      x + response.trans$mean[1]
+    })
+  }
+  
+  if(!is.null(response.trans$bc)) {
+    predictions.untransformed <- lapply(predictions.untransformed, FUN = function(x) {
+      inverse.BoxCoxTrans(response.trans$bc[[1]], x)
+    })
+  }
+  
   tmp.m = matrix(unlist(predictions), ncol = length(predictions))
   colnames(tmp.m) <-  names(predictions)
   rownames(tmp.m) <-  names(predictions[[1]])
+  
+  tmp.m2  = matrix(unlist(predictions.untransformed), ncol = length(predictions.untransformed))
+  colnames(tmp.m2) <-  names(predictions.untransformed)
+  rownames(tmp.m2) <-  names(predictions.untransformed[[1]])
+  
+  
   tmp.m.long <- reshape2::melt(tmp.m)
   names(tmp.m.long) <- c("knockout", "model", "pred")
   
+  tmp.m.long2 <- reshape2::melt(tmp.m2)
+  names(tmp.m.long2) <- c("knockout", "model", "pred.untransformed")
+  
+  tmp.predictions.long <- full_join(tmp.m.long, tmp.m.long2)
+  
+  library(tidyr)
   #getting models stats
   t <- resamples(models)
   t.long = reshape2::melt(t$values)
@@ -187,13 +236,13 @@ read_models.caret.predict = function(x) {
     group_by(model, stats) %>% 
       summarise(mean_stats = mean(value, na.rm=T),
                 median_stats = median(value, na.rm=T)) %>%
-      dplyr::select(model, stats, mean_stats) %>%
-      spread(stats, mean_stats)
+      dplyr::select(model, stats, mean_stats) %>% 
+      dcast(formula = "model~stats", value.var = "mean_stats")
   
-  t.long.summary.wide$is.minRMSE <- ifelse(t.long.summary.wide$RMSE == min(t.long.summary.wide$RMSE),1,0)
-  t.long.summary.wide$is.maxRsquared <- ifelse(t.long.summary.wide$Rsquared == max(t.long.summary.wide$Rsquared),1,0)
+  t.long.summary.wide$is.minRMSE <- ifelse(t.long.summary.wide$RMSE == min(t.long.summary.wide$RMSE, na.rm = T),1,0)
+  t.long.summary.wide$is.maxRsquared <- ifelse(t.long.summary.wide$Rsquared == max(t.long.summary.wide$Rsquared, na.rm = T),1,0)
   
-  table <- full_join(tmp.m.long, t.long.summary.wide, by = "model")
+  table <- full_join(tmp.predictions.long, t.long.summary.wide, by = "model")
   
   table$dataset = x[[2]]
   table$metabolite  = x[[3]]
@@ -289,8 +338,6 @@ toPlot$X2 <-  factor(toPlot$X2, levels =  rev(metabolites.cl$labels[metabolites.
 
 ggplot(toPlot, aes(x=X1, y=X2, size=abs(value))) +
   geom_point()
-
-
 
 
 
