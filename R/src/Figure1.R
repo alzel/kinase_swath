@@ -29,15 +29,17 @@ KEGG.pathways.stats <- KEGG.pathways %>%
   summarize(EC.coverage  = length(unique(EC.number[is.inData == 1]))/length(unique(EC.number)),
             ORF.coverage = length(unique(ORF[is.inData == 1]))/length(unique(ORF)),
             EC.active  = length(unique(EC.number[is.Coupled == 1 ]))/length(unique(EC.number)),
-            ORF.active = length(unique(ORF[is.Coupled == 1 ]))/length(unique(ORF)))
-
-KEGG.pathways.stats2 <- KEGG.pathways %>% 
-  filter(is.Coupled == 1) %>%
-  group_by(pathway) %>% 
-    summarize(EC.active.inData  = length(unique(EC.number[is.Coupled == 1 & is.inData == 1 ]))/length(unique(EC.number[is.Coupled == 1])))
+            ORF.active = length(unique(ORF[is.Coupled == 1 ]))/length(unique(ORF)),
+            EC.active.inData  = length(unique(EC.number[is.Coupled == 1 & is.inData == 1 ]))/length(unique(EC.number[is.Coupled == 1])))
 
 
-KEGG.pathways.stats <- merge(KEGG.pathways.stats, KEGG.pathways.stats2, all = T)
+# KEGG.pathways.stats2 <- KEGG.pathways %>% 
+#   filter(is.Coupled == 1) %>%
+#   group_by(pathway) %>% 
+#     summarize(EC.active.inData  = length(unique(EC.number[is.Coupled == 1 & is.inData == 1 ]))/length(unique(EC.number[is.Coupled == 1])))
+
+
+# KEGG.pathways.stats <- merge(KEGG.pathways.stats, KEGG.pathways.stats2, all = T)
 KEGG.pathways.stats = merge(KEGG.pathways.stats, kegg_categories, by="pathway")
 
 selected = c("Amino acid metabolism",                       
@@ -66,6 +68,8 @@ p = ggplot(toPlot, aes(x=pathway, y=coverage, fill=stats)) +
   geom_bar(stat="identity", position = "dodge") +
   scale_x_discrete(labels = KEGG.pathways.stats.f$C ) +
   coord_flip()
+
+
 
 toPlot = KEGG.pathways.stats.f %>% group_by(B) %>% 
   summarise(avgEC = mean(EC.coverage, na.rm = T),
@@ -126,7 +130,7 @@ p.pack_man <- ggplot(toPlot, aes(x="", y=pathways_coverage, fill=A)) +
   xlab("") +
   ylab("")
 
-toPlot <- KEGG.pathways.stats.f %>% filter(EC.coverage > 0) %>%
+toPlot <- KEGG.pathways.stats.f %>% 
   dplyr::select(A, EC.coverage, EC.active.inData) %>%
   gather(stats, coverage, -A) %>%
   group_by(stats) %>%
@@ -143,18 +147,55 @@ p.mean_cov <- ggplot(toPlot, aes(x=stats, y=MEAN_coverage)) +
   theme_bw() +
   theme(legend.position = "none")
 
-## for pathways figure
+
+toPlot <- KEGG.pathways.stats.f %>% 
+  dplyr::select(A, EC.coverage, EC.active.inData) %>%
+  gather(stats, coverage, -A) %>%
+  group_by(stats) %>%
+  summarise(MEAN_coverage = mean(coverage, na.rm = T))
+
+toPlot$stats = factor(toPlot$stats, levels = c("EC.active.inData", "EC.coverage"))
+
+toPlot2 <- KEGG.pathways.stats.f %>% 
+  group_by(A) %>%
+  summarise(pathways_coverage = sum(EC.coverage > coverage_thr)/length(EC.coverage))
+
+toPlot <- rbind(toPlot, rename(toPlot2, stats = A, MEAN_coverage = pathways_coverage) )
+toPlot$non_coverered <- 1 - toPlot$MEAN_coverage
+toPlot <- reshape::melt(as.data.frame(toPlot), id.vars = c("stats"))
+
+toPlot$stats <- factor(toPlot$stats, levels = as.character((toPlot %>% filter(variable  == "MEAN_coverage") %>% arrange(value) %>% dplyr::select(stats))[,1]))
+
+p.pack_man2 <- ggplot(toPlot, aes(x=stats, y=value, fill = variable)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar(theta = "y", start = pi/2 ) +
+  scale_y_continuous(breaks = seq(0,1,0.25),labels = percent_format(), limits = c(0,1)) +
+  theme_bw() +
+  theme(legend.justification=c(1,0), 
+        legend.position="none",
+        legend.key.size	=  unit(0.25, "cm"))+
+  xlab("") +
+  ylab("")
+
+
 toSave <- KEGG.pathways.stats
 toSave$label <- sub(x = toSave$pathway, pattern = "path:sce", replacement = "")
 
 toSave <- toSave %>% filter(EC.coverage > 0.3) %>% dplyr::select(label )
-
 
 file_name = paste("KEGG_pathways_highlight", fun_name, "csv", sep = ".")
 file_path = paste(suppl_dir, file_name, sep="/")
 write.csv(x = toSave, file = file_path, row.names = F, quote = F, eol = "\n", col.names = NA)
 
 
+toSave <- KEGG.pathways %>% filter(is.inData == T)
+toSave$label <- paste("EC", as.character(toSave$EC.number), sep = "")
+toSave <- toSave %>% dplyr::select(label ) %>% distinct()
+
+
+file_name = paste("KEGG_EC_highlight", fun_name, "csv", sep = ".")
+file_path = paste(suppl_dir, file_name, sep="/")
+write.table(x = toSave, file = file_path, row.names = F, quote = F, eol = "\n", col.names = F)
 
 ## -- CVs of mix samples -----
 
@@ -198,9 +239,9 @@ toPlot <- data.all.summary
 p = ggplot(data = toPlot, aes(x=type, y=CV*100)) + 
   geom_violin() + 
   geom_boxplot(width=0.2, outlier.shape = NA) +
-  scale_y_log10(limits=c(5,100), breaks=c(5, 10, 15,20, 50,  100))+
+  scale_y_log10(limits=c(5,100), breaks=c(5, 10, 15,20, 50,  100)) +
   annotation_logticks(sides="l") +
-  ylab("Signal variation for the duration of experiment, CV") +
+  ylab("Signal variation for the duration of experiment, CV")
  
 
 toPlot <- data.all.summary %>% filter(type == "proteins")
@@ -248,7 +289,7 @@ write.csv(x = toSave, file = file_path, row.names = F,  eol = "\n")
 proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
 proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
 
-toPlot = proteins.FC.f
+toPlot = proteins.FC.f %>% filter(isiMM904 == T)
 toPlot[toPlot$logFC < 0,]$logFC = ifelse(toPlot[toPlot$logFC < 0,]$logFC < lb, lb, toPlot[toPlot$logFC < 0,]$logFC)
 toPlot[toPlot$logFC > 0,]$logFC = ifelse(toPlot[toPlot$logFC > 0,]$logFC > ub, ub, toPlot[toPlot$logFC > 0,]$logFC)
 
@@ -267,7 +308,7 @@ toPlot$sign = ifelse(abs(toPlot$logFC) >= FC_thr & toPlot$p.value_BH < pval_thr,
 
 
 
-p1 = ggplot(toPlot, aes(y=-log10(p.value_BH), x=logFC)) +
+p.volcano1 = ggplot(toPlot, aes(y=-log10(p.value_BH), x=logFC)) +
   geom_point(aes(color = sign), alpha=0.5) + 
   xlim(c(lb,ub)) +
   geom_hline(yintercept = -log(pval_thr,10),linetype=3) +
@@ -281,8 +322,29 @@ p1 = ggplot(toPlot, aes(y=-log10(p.value_BH), x=logFC)) +
   theme_bw() +
   theme(aspect.ratio = 5/8, legend.position = "none")
 
+p.volcano_rect = ggplot(toPlot, aes(y=-log10(p.value_BH), x=logFC)) +
+  geom_point(aes(color = sign), alpha=0.5) + 
+  xlim(c(lb,ub)) +
+  geom_hline(yintercept = -log(pval_thr,10),linetype=3) +
+  geom_vline(xintercept = c(FC_thr,-FC_thr),linetype=3) +
+#   geom_text(data=proteins.FC.stats, aes(x=x_min, y=y_max, hjust=0, vjust=1,
+#                                         label=paste(paste0("On average perturbed = ", round(n_sign/n_prot*100, 2), "%"),
+#                                                     paste0("up/down_ratio = ",ratio), sep="\n"))) +
+  #paste0("ratio_sign = ",   ratio_sign),
+  #paste0("#_prot = ", n_prot), sep="\n"))) +
+  xlab("Protein expression change in mutant, log2(fold-change)") +
+  theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        #panel.border = element_blank(),
+        panel.background = element_blank(),
+        aspect.ratio = 1,
+        legend.position = "none")
 
-p2 = ggplot(toPlot, aes(x=logFC)) +
+
+
+p.volcano_inset = ggplot(toPlot, aes(x=logFC)) +
   geom_histogram(colour = "white", fill = "black", binwidth = 0.25) +
   #geom_rect(aes(ymin=0, ymax=Inf, xmin=-FC_thr, xmax=FC_thr), inherit.aes=F, fill="grey", alpha = 0.01) +
   xlab(paste("Log2(fold-change)")) +
@@ -291,7 +353,9 @@ p2 = ggplot(toPlot, aes(x=logFC)) +
   theme_bw() +
   theme(aspect.ratio = 1)
 
-p.volcano <- p1 + annotation_custom(grob = ggplotGrob(p2), xmin = 0, xmax = 5, ymin = 20 , ymax = 120)
+p.volcano_combined <- p.volcano1 + annotation_custom(grob = ggplotGrob(p.volcano_inset), xmin = 0, xmax = 5, ymin = 20 , ymax = 120)
+
+
 
 ##  ---- fold-change boxplots for supplementary ------
 
@@ -379,6 +443,28 @@ write.table(x = toSave, file = file_path, row.names = F, quote = F, eol = "\n", 
 s.kinase_boxplot_all$toScale <- T
 plots.list <- lappend(plots.list, s.kinase_boxplot_all)
 
+### -- perturbation histogram -------------
+
+toPlot = proteins.FC.f %>% filter(isiMM904 == T)
+toPlot$sign = ifelse(abs(toPlot$logFC) >= FC_thr & toPlot$p.value_BH < pval_thr, 1,0)
+all_measured_enzymes <- as.vector((proteins.FC.f %>% filter(isiMM904 ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
+
+toPlot <- toPlot %>% 
+  group_by(KO) %>%
+  summarize(value = sum(sign),
+            fraction = value/length(all_measured_enzymes)) %>% 
+  arrange(value)
+
+toPlot$label <- as.character(exp_metadata$gene[match(toPlot$KO, exp_metadata$ORF)])
+toPlot$label <- factor(toPlot$label, levels = unique(toPlot$label))
+
+p.enzyme_perturbation <- ggplot(toPlot, aes(x = fraction)) +
+  geom_histogram(colour = "white", fill = "black", binwidth = 0.05) +
+  xlab(paste("Fraction of perturbed metabolic network per kinase mutant")) +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+
+p.volcano_combined2 <- p.volcano1 + annotation_custom(grob = ggplotGrob(p.enzyme_perturbation), xmin = 0, xmax = 5, ymin = 20 , ymax = 120)
 
 # IRT chromatogram stability ------------------
 
@@ -483,6 +569,21 @@ names(transcriptome.FC)[length(transcriptome.FC)] = "KO"
 transcriptome.FC$isMetabolic = transcriptome.FC$ORF %in% unique(iMM904$gene)
 transcriptome.FC$isiMM904 = transcriptome.FC$ORF %in% unique(as.character(iMM904$gene))
 transcriptome.FC.f = transcriptome.FC[transcriptome.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
+
+
+# 
+# transcriptome.FC$gene_name <- orf2name$gene_name[match(transcriptome.FC$ORF, orf2name$ORF)]
+# transcriptome.FC$KO.name <- orf2name$gene_name[match(transcriptome.FC$KO, orf2name$ORF)]
+# 
+# tmp.subset <- transcriptome.FC[grep("HSP", transcriptome.FC$gene_name ),] 
+# toPlot <- tmp.subset %>% filter(p.value_BH < 0.01, abs(logFC) > 0.4)
+# tmp.p <- ggplot(toPlot, aes(x = KO.name, y = gene_name, fill = logFC)) +
+#   geom_tile()
+# 
+# file_name = "hsp_transcrription.pdf"
+# file_path = paste(figures_dir, file_name, sep="/")
+# save_plot(plot = tmp.p, filename = file_path, base_height = 8.27*1.5, base_width = 11.69*1.5 )
+
 
 
 tr.pr.FC = merge(transcriptome.FC, proteins.matrix.combat.quant.FC, by=c("KO", "ORF"), suffixes=c(".tr", ".pr"))
@@ -700,7 +801,9 @@ plots.list = lappend(plots.list, p)
 
 ### ---- sentinels ------
 load("./R/objects/sentinels.proteins.matrix.quant.combat.FC.RData")
+load("./R/objects/sentinels.proteins.matrix.quant.combat_pseudo.FC.PSEUDO.RData")
 load("./R/objects/sentinels.proteins.matrix.quant.combat.RData")
+load("./R/objects/sentinels.table._clean_.RData")
 
 load("./R/objects/proteins.matrix.combat.quant.FC.RData")
 load("./R/objects/proteins.matrix.combat.quant.RData")
@@ -709,9 +812,18 @@ load("./R/objects/iMM904._load_.RData")
 protein.matrix = proteins.matrix.combat.quant
 proteins.FC = sentinels.proteins.matrix.quant.combat.FC
 
+
+
+
 proteins.FC$gene_name <- orf2name$gene_name[match(proteins.FC$ORF, orf2name$ORF)]
 reference = unique(as.character(proteins.FC$reference))
 proteins.FC.f = proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
+
+
+sentinels.df <- dcast(proteins.FC.f, formula = "KO~ORF", value.var = "logFC")
+sentinels.matrix <- as.matrix(sentinels.df[,-c(1,2)])
+rownames(sentinels.matrix) <- sentinels.df[,1]
+
 
 pval_thr = 0.01
 set.seed(123)
@@ -729,8 +841,9 @@ toPlot <- proteins.FC.f %>%
   group_by(KO) %>%
   mutate(sign = n()) %>%
   group_by(ORF) %>%
-  mutate(popularity = n()) %>%
-  filter(popularity >=10, sign >= 15)
+  mutate(popularity = n())
+#%>%
+#  filter(popularity, sign >= 15)
 
 sentinels_desc_collapsed = sentinels.table %>% dplyr::select(ORF.ID, short_info) %>% distinct() %>%
   filter(ORF.ID %in% toPlot$ORF) %>%
@@ -763,16 +876,16 @@ toPlot$my_fill[which(is.na(toPlot$my_fill))] <- ifelse(toPlot$logFC[which(is.na(
 toPlot$my_fill <- factor(toPlot$my_fill, levels = my_levels)
 
 toPlot$info <- sentinels_desc_collapsed$description[match(toPlot$ORF, sentinels_desc_collapsed$ORF.ID)]
-toPlot$sentinel <- paste(toPlot$info, toPlot$gene_name, sep = "::")
+toPlot$sentinel <- paste(toPlot$info, Hmisc::capitalize(tolower(toPlot$gene_name)), sep = "::")
 
 toPlot$popular_info <- sentinels_desc_collapsed$popular_info[match(toPlot$ORF, sentinels_desc_collapsed$ORF.ID)]
-toPlot$sentinel_popular <- paste(toPlot$popular_info, toPlot$gene_name, sep = "::")
+toPlot$sentinel_popular <- paste(toPlot$popular_info, paste(Hmisc::capitalize(tolower(toPlot$gene_name)), "p", sep=""), sep = "::")
 
 # sorted = sort(unique(toPlot$sentinel))
 # sorted <- c(sorted[grep("multiple", x = sorted, invert = T)], sorted[grep("multiple", x = sorted)])
 #toPlot$sentinel <- factor(toPlot$sentinel, levels = rev(sorted))
 sorted <- sort(unique(toPlot$sentinel_popular))
-sorted <- sorted[c(grep(12, sorted,invert =T), grep(12, sorted))]
+#sorted <- sorted[c(grep(12, sorted,invert =T), grep(12, sorted))]
 toPlot$sentinel_popular <- factor(toPlot$sentinel_popular, levels = sorted)
 
 p.heatmap_sentinels <- ggplot(toPlot) +  
@@ -780,11 +893,287 @@ p.heatmap_sentinels <- ggplot(toPlot) +
   #   scale_fill_gradient2(low="#1F78B4",high="#E31A1C",mid ="white",
   #                        breaks = seq(-0.75, 0.75, 0.25),
   #                        midpoint=0)  +
-  scale_fill_manual(values = my_colours) +
+  scale_fill_manual(values = my_colours, 
+                    name = "log2(mutant/WT)",
+                    labels = c("<-2", "-1.5", "-1", "-0.41", "0.41", "1", "1.5", ">2")) + 
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
-        legend.position = c(0.2, 0.8) ) +
-  labs(x="", y = "")
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, face="italic"),  
+        legend.position = "left", aspect.ratio = 1, 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) + 
+  labs(x="Kinase mutant", y = "Marker for biological process")
+
+p.heatmap_sentinels_slide <- ggplot(toPlot) +  
+  geom_tile(aes(x = KO.gene, y = sentinel_popular, fill = my_fill ), colour="grey") +
+  #   scale_fill_gradient2(low="#1F78B4",high="#E31A1C",mid ="white",
+  #                        breaks = seq(-0.75, 0.75, 0.25),
+  #                        midpoint=0)  +
+  scale_fill_manual(values = my_colours, 
+                    name = "log2(mutant/WT)",
+                    labels = c("<-2", "-1.5", "-1", "-0.41", "0.41", "1", "1.5", ">2")) + theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, face="italic"),  
+        legend.position = "left", aspect.ratio = 1, 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) + 
+  labs(x="Kinase mutant", y = "Marker for biological process")
+
+p.heatmap_sentinels_slide
+
+file_name = "sentinels_slide.pdf"
+file_path = paste(figures_dir, file_name, sep="/")
+
+save_plot(plot = p.heatmap_sentinels_slide, filename = file_path, base_height = 8.27*1.5, base_width = 11.69*1.5 )
+
+
+
+# --- constant fraction & saturation -----
+load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+load("./R/objects/proteins.matrix.combat.quant.RData")
+load("./R/objects/iMM904._load_.RData")
+
+EC.genes = gene.annotations[gene.annotations$V3 == "EC number",]
+protein.matrix = proteins.matrix.combat.quant
+proteins.FC = proteins.matrix.combat.quant.FC
+
+pval_thr = 0.01
+set.seed(123)
+FC_thr = getFC_thr(proteins.matrix=protein.matrix, pval_thr=pval_thr)
+
+proteins.FC.f = proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
+#proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
+proteins.FC.f$isEnzyme = proteins.FC.f$ORF %in% unique(EC.genes$V4)
+proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
+
+proteins.FC.f.stats <- proteins.FC.f %>% 
+  group_by(KO) %>%
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
+  summarize(#n_metabolic = sum(isMetabolic == T),
+            n_yeast  = sum(isiMM904),
+            n_total = n())
+
+proteins.FC.f.stats$n_yeast_fraction <- proteins.FC.f.stats$n_yeast/proteins.FC.f.stats$n_total
+toPlot <- proteins.FC.f.stats 
+p.constant_fraction <- ggplot(toPlot, aes(x = n_total, y = n_yeast_fraction)) +
+  geom_point() +
+  geom_smooth(method = "loess") +
+  xlab("Number of proteins changes per mutant") +
+  ylab("Fraction of metabolic enzymes affected by kinase") +
+  theme_bw()
+
+all_proteins <- as.character(unique(proteins.FC.f$ORF))
+all_measured_enzymes <- as.vector((proteins.FC.f %>% filter(isiMM904 ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
+
+proteins.FC.f.metabolic <- tbl_df(proteins.FC.f) %>% 
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr, isiMM904 == T)
+
+proteins.FC.f.metabolic$KO.gene <- orf2name$gene_name[match(proteins.FC.f.metabolic$KO, orf2name$ORF)]
+stopifnot(!any(is.na(proteins.FC.f.metabolic$KO.gene)))
+
+FC.f.metabolic.stats <- proteins.FC.f.metabolic %>% 
+  group_by(KO.gene) %>% 
+  summarise(n = n(),
+            n_pos = sum(logFC > 0)/length(all_measured_enzymes),
+            n_neg = sum(logFC < 0)/length(all_measured_enzymes)) %>% 
+  ungroup() %>% arrange(n)
+
+combinations <- combn(unique(proteins.FC.f.metabolic$KO), 2)
+combinations.df <- as.data.frame(t(combinations))
+
+KO.genes <- proteins.FC.f.metabolic %>% dplyr::select(KO, ORF) %>% distinct()
+
+
+overlaps <- ddply(combinations.df, .(V1, V2),
+                  
+                  .fun = function(x) {
+                    df1 <- KO.genes %>% filter(KO == x$V1)
+                    df2 <- KO.genes %>% filter(KO == x$V2)
+                    
+                    result <- bind_rows(df1, df2) %>% 
+                      group_by(ORF) %>%
+                      summarise(gene_n = n()) %>% 
+                      summarize(intersection = sum(gene_n == 2),
+                                union = n(),
+                                overlap = intersection/union)
+                    
+                    
+                    return(result)
+                  }  )
+
+overlaps.stats <- overlaps %>% group_by(V1) %>%
+  summarize(mean.intersection = mean(intersection, na.rm=T)) %>%
+  mutate(gene_name = orf2name$gene_name[match(V1, orf2name$ORF)]) %>%
+  left_join(FC.f.metabolic.stats, by = c("gene_name" = "KO.gene"))
+
+overlaps.stats$degree <- igraph::degree(GRAPH)[match(overlaps.stats$V1, names(igraph::degree(GRAPH)))]
+
+toPlot <- overlaps.stats %>% 
+  ungroup() %>% 
+  mutate(n_fraction = n/length(all_measured_enzymes),
+         mean.intersection_fraction = mean.intersection/length(all_measured_enzymes))
+library(splines)
+
+p.saturation <- ggplot(toPlot, aes(x = n_fraction, y = mean.intersection_fraction)) +
+  geom_point(aes(size =degree)) +
+  stat_smooth(method = "lm", formula=y~ns(x,2), se=F) +
+  scale_size(range = c(1, 5)) +
+  theme_bw() +
+  xlab("Fraction of perturbed metabolic network, %") +
+  theme(legend.position = c(0.7, 0.5))
+
+# -- PPI and other networks ----- 
+load("./R/objects/yeastract._load_.RData")
+load("./R/objects/GO_slim.raw._load_.RData")
+load("./R/objects/STRING._load_.RData")
+load("./R/objects/yeast.ppi._load_.RData")
+
+string.exp = STRING %>% filter(experimental > 900)
+string.all = STRING %>% filter(combined_score > 900)
+
+G.string.exp = graph.data.frame(droplevels(string.exp %>% dplyr::select(ORF1, ORF2)), directed=F)
+G.string.all = graph.data.frame(droplevels(string.all %>% dplyr::select(ORF1, ORF2)), directed=F)
+GRAPH = G.string.exp
+
+# ---- pathways and TFs -------------
+
+yeast.ppi = tbl_df(yeast.ppi)
+yeast.ppi.p.all = droplevels(yeast.ppi %>% filter(Experimental.System.Type == "physical") %>% distinct(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B))
+yeast.ppi.g.all = droplevels(yeast.ppi %>% filter(Experimental.System.Type == "genetic") %>% distinct(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B))
+
+yeast.ppi.p = droplevels(yeast.ppi %>% filter(Author == "Breitkreutz A (2010)", Experimental.System.Type == "physical") %>% distinct(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B))
+yeast.ppi.g = droplevels(yeast.ppi %>% filter(Author == "Costanzo M (2010)", Experimental.System.Type == "genetic") %>% distinct(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B))
+
+
+G.phys = graph.data.frame(droplevels(yeast.ppi.p %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
+G.gene = graph.data.frame(droplevels(yeast.ppi.g %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
+G.phys.all  = graph.data.frame(droplevels(yeast.ppi.p.all %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
+G.gene.all  = graph.data.frame(droplevels(yeast.ppi.g.all %>% dplyr::select(Systematic.Name.Interactor.A, Systematic.Name.Interactor.B)), directed=F)
+
+
+proteins.FC.f = droplevels(proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]) #only kinases
+proteins.FC.f$sign = ifelse(abs(proteins.FC.f$logFC) >= FC_thr & proteins.FC.f$p.value_BH < pval_thr, 1,0)
+proteins.FC.f$isMetabolic = proteins.FC.f$ORF %in% unique(KEGG.pathways.f$ORF)
+proteins.FC.f$isEnzyme = proteins.FC.f$ORF %in% unique(EC.genes$V4)
+proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
+
+
+proteins.FC.f.stats = proteins.FC.f %>% filter(isiMM904, p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% 
+  group_by(KO) %>% dplyr::summarise(changes = n(),
+                                    perturbation = sum(abs(logFC)))
+
+
+#proteins.FC.f.stats$KO %in% unique(as.vector(GO_slim.raw$V1[grep(x=GO_slim.raw$V5, pattern="transcription factor activity")]))
+#proteins.FC.f.stats$KO %in% unique(yeastract)
+
+yeastract$TF_ORF = orf2name$ORF[match(yeastract$TF, orf2name$gene_name)]
+yeastract.stats = yeastract %>% group_by(TF, TF_ORF) %>% summarise(n = n()) #number of genes yeastract connected to
+
+TFs = unique(as.vector(GO_slim.raw$V1[grep(x=GO_slim.raw$V5, pattern="nucleic acid binding transcription factor activity")]))
+
+#write.table(x=unique(rownames(protein.matrix)), file="proteins.txt",  quote=F, row.names=F, col.names=F)
+
+phys.TF_ORFs = as.character(TFs[TFs %in% V(GRAPH)$name])
+kinases = as.character(unique(proteins.FC.f.stats$KO)[unique(proteins.FC.f.stats$KO) %in% V(GRAPH)$name])
+
+paths = igraph::shortest.paths(graph=GRAPH, v=kinases,  to=phys.TF_ORFs, algorithm="unweighted")
+
+paths.all = get.all.shortest.paths(GRAPH, from=kinases, to=phys.TF_ORFs)
+
+min.paths = apply(paths, 1, min)
+min.paths[is.infinite(min.paths)] = NA
+
+paths.long = melt(paths) 
+names(paths.long) = c("KO", "TF","value")
+paths.long$value[is.infinite(paths.long$value)] = NA
+
+paths.long.stats = paths.long %>% group_by(KO) %>% summarise( mean.min = mean(yeastract.stats$n[match(TF[value %in% min(value)], yeastract.stats$TF_ORF)],na.rm=T),
+                                                              sum.min = sum(yeastract.stats$n[match(TF[value %in% min(value)], yeastract.stats$TF_ORF)],na.rm=T),
+                                                              n = length(yeastract.stats$n[match(TF[value %in% min(value)], yeastract.stats$TF_ORF)]))
+
+
+proteins.FC.f.stats$gene_name = orf2name$gene_name[match(proteins.FC.f.stats$KO, orf2name$ORF)]
+
+proteins.FC.f.stats$phys.degree = degree(G.phys)[match(proteins.FC.f.stats$KO, names(degree(G.phys)))]
+proteins.FC.f.stats$betweenness = betweenness(GRAPH)[match(proteins.FC.f.stats$KO, names(degree(GRAPH)))]
+proteins.FC.f.stats$degree = degree(GRAPH)[match(proteins.FC.f.stats$KO, names(degree(GRAPH)))]
+#proteins.FC.f.stats$gene.all.degree = degree(G.gene.all)[match(proteins.FC.f.stats$KO, names(degree(G.gene.all)))]
+proteins.FC.f.stats$gene.degree = degree(G.gene)[match(proteins.FC.f.stats$KO, names(degree(G.gene)))]
+proteins.FC.f.stats$min.paths = min.paths[match(proteins.FC.f.stats$KO, names(min.paths))]
+proteins.FC.f.stats$min.paths.comb = ifelse(min.paths[match(proteins.FC.f.stats$KO, names(min.paths))] <= 1, 0, 1)
+
+
+proteins.FC.f.stats = merge(proteins.FC.f.stats, paths.long.stats, by="KO", all=T)
+proteins.FC.f.stats$min.paths.comb[is.na(proteins.FC.f.stats$min.paths.comb)] = "none"
+proteins.FC.f.stats$min.paths[is.na(proteins.FC.f.stats$min.paths)] = "none"
+
+proteins.FC.f.stats.long = melt(as.data.frame(proteins.FC.f.stats), id.vars=c("KO", "gene_name", "min.paths", "min.paths.comb")) 
+
+
+control.min.paths.comb = proteins.FC.f.stats.long %>% filter(min.paths.comb == 0)
+control.min.paths = proteins.FC.f.stats.long %>% filter(min.paths == 1)
+
+
+min.paths.comb.stats = tbl_df(proteins.FC.f.stats.long %>% filter(min.paths.comb != 0)) %>% 
+  group_by(min.paths.comb, variable) %>% 
+  summarize( FC.mean = mean(value, na.rm=T)/mean(control.min.paths.comb[control.min.paths.comb[,5] == variable, "value"], na.rm=T),
+             FC.median = median(value, na.rm=T)/median(control.min.paths.comb[control.min.paths.comb[,5] == variable, "value"], na.rm=T),
+             p.value = wilcox.test(value,control.min.paths.comb[control.min.paths.comb[,5] == variable, "value"])$'p.value')
+
+
+min.paths.stats = proteins.FC.f.stats.long %>% filter(min.paths != 1) %>% 
+  group_by(min.paths, variable) %>% 
+  summarize( FC.mean = mean(value, na.rm=T)/mean(control.min.paths[control.min.paths[,5] == variable, "value"], na.rm=T),
+             FC.median = median(value, na.rm=T)/median(control.min.paths[control.min.paths[,5] == variable, "value"], na.rm=T),
+             p.value = wilcox.test(value, control.min.paths[control.min.paths[,5] == variable, "value"])$'p.value')
+
+
+min.paths.stats$symbol = ""
+min.paths.stats$symbol = ifelse(min.paths.stats$p.value<0.05, "*", "")
+#min.paths.stats$symbol = ifelse(min.paths.stats$p.value<0.001, "**", "")
+
+
+min.paths.comb.stats$symbol = ""
+min.paths.comb.stats$symbol = ifelse(min.paths.comb.stats$p.value<0.05, "*", "")
+#min.paths.comb.stats$symbol = ifelse(min.paths.comb.stats$p.value<0.001, "**", "")
+
+toPlot <- proteins.FC.f.stats.long %>% filter(min.paths.comb != "none", variable == "changes")
+toText <- min.paths.comb.stats  %>% filter(min.paths.comb != "none", variable == "changes")
+
+p.dist_changes = ggplot(toPlot , aes(x=factor(min.paths.comb), y=value)) +
+  stat_boxplot(geom ='errorbar', width = 0.33) +
+  geom_boxplot(width = 0.5) + 
+  geom_text(data=toText, aes(x = factor(min.paths.comb) , y=1, label=symbol), col="red", size=10)+
+  scale_x_discrete(labels=c("First", ">1")) +
+  xlab("Length of the shortest path in PPI network from kinase to transcription factor") +
+  ylab("Number of perturbed proteins") +
+  theme_bw()
+
+
+
+toPlot <- proteins.FC.f.stats.long %>% filter(min.paths.comb != "none", variable == "betweenness")
+toText <- min.paths.comb.stats  %>% filter(min.paths.comb != "none", variable == "betweenness")
+library(scales)
+p.dist_between <- ggplot(toPlot , aes(x=factor(min.paths.comb), y=value)) +
+  stat_boxplot(geom ='errorbar', width = 0.33) +
+  geom_boxplot(width = 0.5) + 
+  geom_text(data=toText, 
+            aes(x = factor(min.paths.comb) , y=1, label=symbol), col="red", size=10)+
+  scale_x_discrete(labels=c("First", ">1")) +
+  scale_y_continuous(name="Number of shortest paths through kinase, node betweeness", labels = scientific) +
+  xlab("") +
+  theme_bw()
+
+toPlot <- proteins.FC.f.stats.long %>% filter(min.paths.comb != "none", variable == "degree")
+toText <- min.paths.comb.stats  %>% filter(min.paths.comb != "none", variable == "degree")
+p.dist_degree <- ggplot(toPlot , aes(x=factor(min.paths.comb), y=value)) +
+  stat_boxplot(geom ='errorbar', width = 0.33) +
+  geom_boxplot(width = 0.5) + 
+  geom_text(data=toText, 
+            aes(x = factor(min.paths.comb) , y=1, label=symbol), col="red", size=10)+
+  scale_x_discrete(labels=c("First", ">1")) +
+  scale_y_continuous(name="Number of neigbours of kinasse in PPI, node degree") +
+  xlab("") +
+  theme_bw()
+
 
 
 
@@ -798,7 +1187,7 @@ plot_figure_v1 <- function () {
   grid.text("A", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
   print(p.irt, vp = viewport(layout.pos.row = 1:20, layout.pos.col = 1:30)) #experiment timeline with RT stability
   grid.text("B", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 31),gp=gpar(fontsize=20, col="black"))
-  print(p.volcano, vp = viewport(layout.pos.row = 1:20, layout.pos.col = 31:60)) #Volcano plot
+  print(p.volcano_combined, vp = viewport(layout.pos.row = 1:20, layout.pos.col = 31:60)) #Volcano plot
   grid.text("C", just=c("left", "centre"), vp = viewport(layout.pos.row = 21, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
   print(p.coverage, vp = viewport(layout.pos.row = 21:40, layout.pos.col = 1:25))  #pathway coverage detailed
   print(p.pack_man, vp = viewport(layout.pos.row = 21:30, layout.pos.col = 26:35)) #pathway pie chart
@@ -836,7 +1225,7 @@ plot_figure_v2 <- function() {
   print(p.pack_man, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 81:100)) #pathway pie chart
   print(p.mean_cov , vp = viewport(layout.pos.row = 16:30, layout.pos.col = 81:100)) #pathway average
   grid.text("c", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
-  print(p.volcano, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 1:40)) #Volcano plot
+  print(p.volcano_combined, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 1:40)) #Volcano plot
   grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 42),gp=gpar(fontsize=20, col="black"))
   print(p.tr_vs_pr_cor, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 45:100)) #Volcano plot
   
@@ -845,15 +1234,64 @@ plot_figure_v2 <- function() {
 file_name = "Figure1_v02_scripted.pdf"
 file_path = paste(figures_dir, file_name, sep="/")
 pdf(file_path, height=247/25.4*2, width=183/25.4*2)
-  plot_figure_v2()
+plot_figure_v2()
 dev.off()
 
 file_name = "Figure1_v02_scripted.png"
 file_path = paste(figures_dir, file_name, sep="/")
 
 png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
-  plot_figure_v2() 
+plot_figure_v2() 
 dev.off()
+
+plot_figure_v3 <- function() {
+  grid.newpage() 
+  pushViewport(viewport(layout = grid.layout(135, 100)))
+  
+  grid.text("a", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  print(p.irt.recalibrated, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #experiment timeline with RT stability
+  grid.text("b", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=20, col="black"))
+  print(p.heatmap_sentinels , vp = viewport(layout.pos.row = 1:60, layout.pos.col = 20:100))  #sentinels
+  
+  
+  grid.text("c", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  print(p.volcano_rect, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 1:15)) #Volcano plot
+  print(p.enzyme_perturbation, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 16:30))
+  print(p.constant_fraction, vp = viewport(layout.pos.row = 45:60, layout.pos.col = 1:40))
+  print(p.coverage , vp = viewport(layout.pos.row = 61:90, layout.pos.col = 1:27))  #pathway coverage detailed
+  print(p.pack_man, vp = viewport(layout.pos.row = 61:75, layout.pos.col = 27:40)) #pathway pie chart
+  print(p.mean_cov , vp = viewport(layout.pos.row = 76:90, layout.pos.col = 27:40)) #pathway average
+  
+  print(p.dist_changes, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 41:51))
+  grid.text("g", just=c("left", "centre"), vp = viewport(layout.pos.row = 100, layout.pos.col = 67),gp=gpar(fontsize=20, col="black"))
+  print(p.dist_degree, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 52:63))
+  print(p.dist_between, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 64:75))
+  
+  #grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 42),gp=gpar(fontsize=20, col="black"))
+  #print(p.tr_vs_pr_cor, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 45:100)) #Volcano plot
+  
+}
+
+
+file_name = "Figure1_v03_scripted.pdf"
+file_path = paste(figures_dir, file_name, sep="/")
+pdf(file_path, height=247/25.4*2, width=183/25.4*2)
+plot_figure_v3()
+dev.off()
+
+
+file_name = "Figure1_v03_scripted.png"
+file_path = paste(figures_dir, file_name, sep="/")
+
+png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
+plot_figure_v3() 
+dev.off()
+
+
+
+
+
+
 
 
 #----- Supplementary figures ----- 

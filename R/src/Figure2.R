@@ -86,122 +86,35 @@ G.string.all = graph.data.frame(droplevels(string.all %>% dplyr::select(ORF1, OR
 GRAPH = G.string.exp
 
 
-# -- kinase specificity ----------
-
-load("./R/objects/all_final_models.importance.models_summary2.RData")
-load("./R/objects/all_final_models.models_summary2.RData")
-load("./R/objects/file.list.models_summary2.RData")
 
 
-metabolites.models.long <- all_final_models %>% 
-  filter(isImputed == 0, metabolite != "Glu") %>%
-  dplyr::select(model, RMSE, Rsquared, normalization, dataset, metabolite, degree, preprocessing) %>% 
-  distinct() %>%
-  group_by(metabolite, normalization, degree, preprocessing) %>%
-  #group_by(metabolite) %>%
-  filter(RMSE == min(RMSE,na.rm = T)) %>%
-  group_by(metabolite) %>% filter(degree <= 5) %>%
-  filter(Rsquared == max(Rsquared,na.rm = T))
 
+# p.specificity.h <- ggplot(toPlot, aes(x = value100)) +
+#   geom_density(fill="black") +
+#   facet_wrap(~ metabolite, scales = "free_y") +
+#   xlab("Predictors response similarity following kinase deletion, Jaccard index") +
+#   theme(axis.line.y=element_blank(),
+#         axis.text.y=element_blank(),
+#         axis.text.x=element_blank(),
+#         axis.ticks.y=element_blank(),
+#         axis.title.y=element_blank(),
+#         #strip.text.y = element_text(angle=0),
+#         strip.background = element_rect(colour = NULL))
 
-predictors.dataset <- left_join(metabolites.models.long, all_final_models.importance) 
+# toPlot.stats$metabolite.label <- metabolite2iMM904$official_name[match(toPlot.stats$metabolite, metabolite2iMM904$id)] 
+# toPlot.stats$y = seq(from = 2, to = 0.3, length.out = nrow(toPlot.stats))
 
-metabolite.predictors <- predictors.dataset %>% filter(Overall >= 80) %>%
-  dplyr::select(metabolite, degree, gene ) %>% group_by(metabolite, degree, gene) %>% distinct()
-
-
-proteins.FC.f.stats <- proteins.FC.f %>% 
-  group_by(KO) %>%
-  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
-  summarize(n_metabolic = sum(isMetabolic == T),
-            n_yeast  = sum(isiMM904),
-            n_total = n())
-
-changed.genes <- proteins.FC.f %>% 
-  group_by(KO) %>% arrange() %>%
-  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>%
-  dplyr::select(ORF, KO)
-
-metabolite.predictors <- metabolite.predictors %>%
-  group_by(metabolite, degree) %>%
-  mutate(n_predictors = n())
-
-changed.predictors <- inner_join(metabolite.predictors, changed.genes, by = c("gene" = "ORF" ))
-
-
-kinase.distances <- ddply(changed.predictors, .(metabolite, degree, n_predictors), 
-                          .fun = function(x) {
-                            tmp.df <- dcast(data = x, formula = "KO ~ gene", fun.aggregate = length)
-                            tmp.matrix <- as.matrix(tmp.df[,-1])
-                            rownames(tmp.matrix) = tmp.df[,1]
-                            d = dist(tmp.matrix, method = "binary")
-                            d.matrix <- as.matrix(d)
-                            d.matrix[upper.tri(d.matrix)] <- NA
-                            diag(d.matrix) <- NA
-                            return(melt(d.matrix))
-                            
-                          } )
-
-metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
-metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
-
-toPlot <- kinase.distances %>% filter(metabolite %in% metabolite.order$metabolite, n_predictors >= 5)
-toPlot$metabolite.label <- toupper(metabolite2iMM904$model_name[match(toPlot$metabolite, metabolite2iMM904$id)])
-toPlot.stats <- toPlot %>% 
-  group_by(metabolite, metabolite.label) %>%
-  summarise(median = median(1 - value, na.rm = T)) %>% 
-  ungroup() %>%
-  arrange(median)
-
-
-toPlot$metabolite <- factor(toPlot$metabolite, levels = rev(toPlot.stats$metabolite))
-
-toPlot$metabolite.label <- factor(toPlot$metabolite.label, levels = rev(unique(toPlot.stats$metabolite.label)))
-
-p.specificity <- ggplot(toPlot, aes(x = 1 - value)) +
-  geom_density(fill="black") +
-  facet_grid(metabolite.label ~ . ) +
-  xlab("Predictors response similarity following kinase deletion, Jaccard index") +
-  #theme_bw() +
-  theme(axis.line.y=element_blank(),
-        axis.text.y=element_blank(),
-        axis.ticks.y=element_blank(),
-        axis.title.y=element_blank(),
-        strip.text.y = element_text(angle=0),
-        strip.background = element_rect(colour = NULL), aspect.ratio = 1/10) 
-
-p.specificity$toScale <- F
-
-plots.list <- lappend(plots.list, p.specificity)
-
-p.specificity.h <- ggplot(toPlot, aes(x = 1 - value)) +
-  geom_density(fill="black") +
-  facet_wrap(~ metabolite, scales = "free_y") +
-  xlab("Predictors response similarity following kinase deletion, Jaccard index") +
-  theme(axis.line.y=element_blank(),
-        axis.text.y=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.y=element_blank(),
-        axis.title.y=element_blank(),
-        #strip.text.y = element_text(angle=0),
-        strip.background = element_rect(colour = NULL))
-
-
-toPlot.stats$metabolite.label <- metabolite2iMM904$official_name[match(toPlot.stats$metabolite, metabolite2iMM904$id)] 
-
-toPlot.stats$y = seq(from = 2, to = 0.3, length.out = nrow(toPlot.stats))
-
-p.specificity_hist <- ggplot(toPlot, aes(x = 1 - value)) +
-  geom_density(fill="black") +
-  geom_segment(data=toPlot.stats, aes(x = median, y = y, xend=median , yend=0), 
-               colour="red") +
-  geom_text(data=toPlot.stats, aes(x = median, y = y, label = metabolite.label), 
-            colour="red", check_overlap = TRUE, hjust=-0.1, vjust=0, size=2) +
-  geom_point(data=toPlot.stats, aes(x = median, y = y), colour="red", size=1) +
-  xlab("Predictors response similarity following kinase deletion, Jaccard index") +
-  theme_bw()
-  #scale_x_log10(breaks=seq(0,1,0.1))+
-  #annotation_logticks(sides="b") +
+# p.specificity_hist <- ggplot(toPlot, aes(x =  value)) +
+#   geom_density(fill="black") +
+#   geom_segment(data=toPlot.stats, aes(x = median, y = y, xend=median , yend=0), 
+#                colour="red") +
+#   geom_text(data=toPlot.stats, aes(x = median, y = y, label = metabolite.label), 
+#             colour="red", check_overlap = TRUE, hjust=-0.1, vjust=0, size=2) +
+#   geom_point(data=toPlot.stats, aes(x = median, y = y), colour="red", size=1) +
+#   xlab("Predictors response similarity following kinase deletion, Jaccard index") +
+#   theme_bw()
+#   #scale_x_log10(breaks=seq(0,1,0.1))+
+#   #annotation_logticks(sides="b") +
 
 
 
@@ -404,7 +317,8 @@ p.heatmap <- ggplot(toPlot) +
 #                        midpoint=0)  +
   scale_fill_manual(values = my_colours) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, face = "italic"),
+        axis.text.y = element_text(face = "italic"), 
         aspect.ratio = 1, legend.position = c(0.2, 0.8) ) +
   labs(x="", y = "")
 
@@ -412,6 +326,7 @@ toPlot <- FC.f.metabolic.stats %>%
   dplyr::select(KO.gene, n_pos, n_neg) %>% as.data.frame()%>%
   melt(id.vars = "KO.gene") 
 toPlot$KO.gene <- factor(toPlot$KO.gene, levels = rownames(d.matrix.all)) 
+
 
 library(ggthemes)
 p.barplot = ggplot(toPlot, aes(x=KO.gene, y=value, fill=variable)) + 
@@ -455,6 +370,24 @@ p.barplot.h = ggplot(toPlot, aes(x=KO.gene, y=value, fill=variable)) +
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         legend.position = c(0.2, 0.7))
+
+
+similarities.long.df <- tbl_df(bind_rows(similarities.long))
+similarities.long.df$value[similarities.long.df$X1 == similarities.long.df$X2] <- NA
+
+toPlot <- similarities.long.df %>% filter(dataset == "metabolic", type != "all")
+toPlot.stats <- toPlot %>% group_by(type) %>%
+  summarise(median.value = median(value, na.rm = T),
+            min.value = min(value, na.rm = T),
+            max.value = max(value, na.rm = T))
+
+toPlot$type <- factor(toPlot$type, levels = c("up", "down"))
+p.sim_hist <- ggplot(toPlot, aes(x = value)) +
+  geom_histogram(fill = "black", color = "white") + 
+  geom_vline(data=toPlot.stats, linetype = 5 , color = "red", aes(xintercept = median.value)) +
+  xlab("Kinase perturbation similarity, % of common changes enzymes in contrast to WT") +
+  facet_grid(type ~ .) +
+  theme_bw()
 
 
 #### ---- overlaps up/down for supplementary --------------------
@@ -814,8 +747,6 @@ plots.list <- lappend(plots.list, s.similarities)
 
 
 
-
-
 # ---- pathways and TFs -------------
 
 yeast.ppi = tbl_df(yeast.ppi)
@@ -839,7 +770,7 @@ proteins.FC.f$isEnzyme = proteins.FC.f$ORF %in% unique(EC.genes$V4)
 proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
 
 
-proteins.FC.f.stats = proteins.FC.f %>% filter(p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% 
+proteins.FC.f.stats = proteins.FC.f %>% filter(isiMM904, p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% 
   group_by(KO) %>% dplyr::summarise(changes = n(),
                                     perturbation = sum(abs(logFC)))
 
@@ -875,11 +806,11 @@ paths.long.stats = paths.long %>% group_by(KO) %>% summarise( mean.min = mean(ye
 
 proteins.FC.f.stats$gene_name = orf2name$gene_name[match(proteins.FC.f.stats$KO, orf2name$ORF)]
 
-proteins.FC.f.stats$phys.degree = degree(G.phys)[match(proteins.FC.f.stats$KO, names(degree(G.phys)))]
-proteins.FC.f.stats$betweenness = betweenness(GRAPH)[match(proteins.FC.f.stats$KO, names(degree(GRAPH)))]
-proteins.FC.f.stats$degree = degree(GRAPH)[match(proteins.FC.f.stats$KO, names(degree(GRAPH)))]
+proteins.FC.f.stats$phys.degree = igraph::degree(G.phys)[match(proteins.FC.f.stats$KO, names(igraph::degree(G.phys)))]
+proteins.FC.f.stats$betweenness = igraph::betweenness(GRAPH)[match(proteins.FC.f.stats$KO, names(igraph::degree(GRAPH)))]
+proteins.FC.f.stats$degree = igraph::degree(GRAPH)[match(proteins.FC.f.stats$KO, names(igraph::degree(GRAPH)))]
 #proteins.FC.f.stats$gene.all.degree = degree(G.gene.all)[match(proteins.FC.f.stats$KO, names(degree(G.gene.all)))]
-proteins.FC.f.stats$gene.degree = degree(G.gene)[match(proteins.FC.f.stats$KO, names(degree(G.gene)))]
+proteins.FC.f.stats$gene.degree = igraph::degree(G.gene)[match(proteins.FC.f.stats$KO, names(igraph::degree(G.gene)))]
 proteins.FC.f.stats$min.paths = min.paths[match(proteins.FC.f.stats$KO, names(min.paths))]
 proteins.FC.f.stats$min.paths.comb = ifelse(min.paths[match(proteins.FC.f.stats$KO, names(min.paths))] <= 1, 0, 1)
 
@@ -959,7 +890,6 @@ p.dist_degree <- ggplot(toPlot , aes(x=factor(min.paths.comb), y=value)) +
 
 
 
-
 #  --- pathway enrichment ---- 
 enrich_thr = 0.05
 proteins.FC = tbl_df(proteins.FC)
@@ -979,7 +909,7 @@ all_enrichments = ddply(filter(proteins.FC.f, isMetabolic==T), .(KO),
                         })
 
 
-kegg.enrichments = dcast(droplevels(all_enrichments[all_enrichments$type == "kegg_pathways",]), pathway~KO, value.var="p.value")
+kegg.enrichments = dcast(droplevels(all_enrichments[all_enrichments$type == "kegg_pathways",]), pathway~KO, value.var="p.adj")
 kegg.enrichments.matrix = as.matrix(kegg.enrichments[,-1])
 rownames(kegg.enrichments.matrix) = kegg.enrichments$pathway
 
@@ -990,11 +920,11 @@ proteins.FC.f.stats$enrichment = as.vector(colSums(kegg.enrichments.matrix)[matc
 
 #calculate number of measured ORFs per KEGG metabolic pathway
 KEGG.pathways.f.summary = KEGG.pathways.f[KEGG.pathways.f$ORF %in% rownames(protein.matrix),] %>% group_by(pathway, description) %>% summarize(n=n())
-selected.pathways = as.character(KEGG.pathways.f.summary$pathway[KEGG.pathways.f.summary$n >= 5])
+selected.pathways = as.character(KEGG.pathways.f.summary$pathway[KEGG.pathways.f.summary$n >= 1])
 
 kegg.enrichments.matrix.f = kegg.enrichments.matrix[rownames(kegg.enrichments.matrix) %in% selected.pathways,]
-kegg.enrichments.matrix.f = kegg.enrichments.matrix.f[rowSums(kegg.enrichments.matrix.f) >=2,]
-kegg.enrichments.matrix.f = kegg.enrichments.matrix.f[,colSums(kegg.enrichments.matrix.f) >=2]
+kegg.enrichments.matrix.f = kegg.enrichments.matrix.f[rowSums(kegg.enrichments.matrix.f) >=1,]
+kegg.enrichments.matrix.f = kegg.enrichments.matrix.f[,colSums(kegg.enrichments.matrix.f) >=1]
 
 pathway2desription = pathway2orf %>% distinct(pathway, description) %>% dplyr::select(pathway, description)
 pathway2desription$description = sub(pattern=" - Saccharomyces cerevisiae (budding yeast)", replacement="" , x=pathway2desription$description, fixed=T)
@@ -1055,8 +985,6 @@ slopes <- ddply(combinations.df, .(V1, V2),
                   }  )
 
 
-
-
 toPlot <- slopes %>% filter(V1 == "WT")
 toPlot$label <- orf2name$gene_name[match(toPlot$V2, orf2name$ORF)]
 
@@ -1106,13 +1034,13 @@ plots.list <- lappend(plots.list, s.combined.slopes)
 
 
 
-# ---  similarities comparisong ------------
+# ---  similarities comparisong KEGG/REACTOME ------------
 
 load("./R/objects/similarities.dataset.signaling_similarity.RData")
 toPlot <- similarities.dataset
 toPlot$sample_type <- factor(toPlot$sample_type, levels = c("signal", "random"))
 
-toPlot.stats <- tbl_df(toPlot) %>% group_by(sim_type) %>% 
+toPlot.stats <- tbl_df(toPlot) %>% group_by(sim_type, pathway_base) %>% 
   summarise(pval = (wilcox.test(value[sample_type == "signal"], value[sample_type == "random"]))$'p.value' )
 
 toText <- toPlot.stats %>% filter(sim_type == "overlap")
@@ -1120,7 +1048,7 @@ p.similarities <- ggplot(toPlot %>% filter(sim_type == "overlap"), aes(x = value
   geom_density(aes( fill = sample_type), alpha = 0.5) +
   scale_x_continuous(breaks = seq(0,1, by = 0.25)) +
   xlab("Kinase mutaint pairs perturbation similarity, Jaccard index") + 
-  #facet_wrap(~sim_type, scales = "free") +
+  facet_wrap(~pathway_base, scales = "free") +
   annotate(geom = "text", x=0.75, y = 1, label = paste("p-value=", format(toText$pval, digits=2, scientific=T)))+
   theme_bw() + 
   theme(legend.position = c(0.1, 0.5))
@@ -1130,12 +1058,14 @@ s.similarities <- ggplot(toPlot, aes(x = value)) +
   geom_density(aes( fill = sample_type), alpha = 0.5) +
   scale_x_continuous(breaks = seq(0,1, by = 0.25)) +
   xlab("Kinase mutaint pairs perturbation similarity") + 
-  facet_wrap(~sim_type, scales = "free") +
+  facet_wrap(pathway_base~sim_type, scales = "free") +
   geom_text(data = toPlot.stats, aes(x=0.75, y = 1, label= paste("p-value=", format(pval, digits=2, scientific=T))))+
   theme_bw() + 
   theme(legend.position = c(0.1, 0.5), aspect.ratio = 1)
 
 plots.list <- lappend(plots.list, s.similarities)
+
+
 
 # -- Figure 2 -------
 
@@ -1148,12 +1078,12 @@ plot_figure_v2 <- function() {
   print(p.barplot.line, vp = viewport(layout.pos.row = 1:80, layout.pos.col = 81:100))
   grid.text("b", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 81),gp=gpar(fontsize=20, col="black"))
   
-  print(p.specificity_hist, vp = viewport(layout.pos.row = 80:115, layout.pos.col = 51:100))
+  #print(p.specificity_hist, vp = viewport(layout.pos.row = 80:115, layout.pos.col = 51:100))
   grid.text("c", just=c("left", "centre"), vp = viewport(layout.pos.row = 80, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
   
   print(p.saturation, vp = viewport(layout.pos.row = 80:95, layout.pos.col = 1:25))
   grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 80, layout.pos.col = 51),gp=gpar(fontsize=20, col="black"))
-  print(p.constant_fraction, vp = viewport(layout.pos.row = 80:95, layout.pos.col = 26:50))
+  #print(p.constant_fraction, vp = viewport(layout.pos.row = 80:95, layout.pos.col = 26:50))
   grid.text("e", just=c("left", "centre"), vp = viewport(layout.pos.row = 80, layout.pos.col = 76),gp=gpar(fontsize=20, col="black"))
   
   print(p.dist_changes, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 1:11))
@@ -1177,6 +1107,38 @@ file_path = paste(figures_dir, file_name, sep="/")
 png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
   plot_figure_v2() 
 dev.off()
+
+
+
+plot_figure_v3 <- function() {
+  grid.newpage() 
+  pushViewport(viewport(layout = grid.layout(135, 100)))
+  
+  print(p.heatmap, vp = viewport(layout.pos.row = 1:80, layout.pos.col = 1:80)) #all overlaps of perturbations
+  grid.text("a", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  print(p.barplot.line, vp = viewport(layout.pos.row = 1:80, layout.pos.col = 81:100))
+  grid.text("b", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 81),gp=gpar(fontsize=20, col="black"))
+  print(p.sim_hist, vp = viewport(layout.pos.row = 80:100, layout.pos.col = 1:25))
+  print(p.kegg_enrich, vp = viewport(layout.pos.row = 80:100, layout.pos.col = 26:50))
+  print(p.similarities, vp = viewport(layout.pos.row = 80:100, layout.pos.col = 51:75))
+  print(p.saturation, vp = viewport(layout.pos.row = 80:100, layout.pos.col = 76:100))
+
+}
+
+file_name = "Figure2_v03_scripted.pdf"
+file_path = paste(figures_dir, file_name, sep="/")
+pdf(file_path, height=247/25.4*2, width=183/25.4*2)
+  plot_figure_v3()
+dev.off()
+
+
+file_name = "Figure2_v03_scripted.png"
+file_path = paste(figures_dir, file_name, sep="/")
+
+png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
+  plot_figure_v3() 
+dev.off()
+
 
 
 file_name = paste("supplementary", fun_name, sep = ".")

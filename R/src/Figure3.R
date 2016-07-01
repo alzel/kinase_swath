@@ -371,7 +371,8 @@ p.graph = ggnet2(B, mode = c("x", "y"), label.size = 4, edge.alpha = 0.7,
 # file_path = paste(output_dir, file_name, sep="/")
 # write.graph(net, file=file_path, format="graphml")
 
-# glutamite example ------------------------
+# ----- glutamine example ------------------------
+
 met = "glutamine"
 
 stopifnot(length(met)==1)
@@ -874,7 +875,6 @@ metabolites.long$label = metabolite2iMM904$official_name[match(metabolites.long$
 
 models.summary = all_linear_models %>% filter(degree==1, ismetIncluded == 0,  the_super_best)
 
-
 models.summary = models.summary[models.summary$X1 != "stats",]
 models.summary = merge(models.summary, ec.gene, by.x = "X1", by.y = "V4")
 models.summary$kegg_id = metabolite2iMM904$kegg_id[match(models.summary$metabolite, metabolite2iMM904$id)]
@@ -924,10 +924,29 @@ p.trna <- ggplot(toPlot, aes(x=log(ratio), fill = label)) +
   theme_bw() +
   theme(legend.position = c(0.6, 0.7), legend.background = element_rect(color = NULL), legend.direction = "horizontal")
 
+ordering <- toPlot %>% group_by(label) %>% 
+  mutate(median_ratio = median(log(ratio), na.rm=T)) %>%  ungroup() %>%
+  arrange(median_ratio) %>% dplyr::select(label) %>% distinct()
+
+toPlot$label <- factor(toPlot$label, levels = rev(ordering$label))
+p.trna_separate <- ggplot(toPlot, aes(x=log(ratio))) +  
+  geom_density(fill = "black") +
+  geom_vline(xintercept = 0) +
+  facet_wrap(~label, scales = "free_y", ncol = 1) +
+  scale_fill_discrete(name = "") +
+  xlab(expression(paste("Measured intracellular concentraions divided by ", K[M], " of tRNA charging enzymes, ln(ratio)"))) +
+  theme_bw() +
+  theme(legend.position = "none", 
+        panel.grid = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+
+
 # predictors AA vs TCA
 toPlot = metabolites.long %>% filter(inNetwork == T, isPredictor == T)
 #toPlot = metabolites.long
-stats = data.frame(label_text = c(log(median(toPlot$ratio[toPlot$dataset == "AA"], na.rm=T)/median(toPlot$ratio[toPlot$dataset == "TCA"], na.rm=T)),
+stats = data.frame(label_text = c(median(toPlot$ratio[toPlot$dataset == "AA"], na.rm=T)/median(toPlot$ratio[toPlot$dataset == "TCA"], na.rm=T),
                                   wilcox.test(log(toPlot$ratio[toPlot$dataset == "AA"]), log(toPlot$ratio[toPlot$dataset == "TCA"]))$p.value,
                                   sum(log(toPlot$ratio) > 0, na.rm=T)/length(toPlot$ratio)), #above Km
                    
@@ -943,6 +962,24 @@ p.aatca <- ggplot() +
   geom_vline(xintercept = 0) +
   theme_bw() +
   theme( legend.position = c(0.7,0.7))
+# ### ratio whether it is predictor of not
+# a = (metabolites.long %>% filter(inNetwork == T, isPredictor == F) %>% dplyr::select(ratio))$ratio
+# b = (metabolites.long %>% filter(inNetwork == T, isPredictor == T) %>% dplyr::select(ratio))$ratio
+# 
+# toPlot = metabolites.long %>% filter(inNetwork == T)
+# stats = data.frame(label_text = c(median(b,na.rm=T)/median(a, na.rm=T),
+#                                   wilcox.test(b,a)$p.value),
+#                    x = 1,
+#                    y = c(5,4))
+# 
+# p = ggplot(toPlot, aes(x = isPredictor, y = log(ratio))) + 
+#   geom_boxplot(width=0.2)+
+#   #geom_violin(alpha=0)+
+#   geom_text(data=stats, aes(x=x, y=y, label = label_text)) +
+#   panel_border() +
+#   theme(aspect.ratio = 8/3)
+# p
+#geom_point(data=toPlot, aes(x=jitter(as.numeric(isPredictor)) + 1 , y = log(ratio)), alpha = 0.1)
 
 
 # ---- comparing network degrees ------ 
@@ -1001,8 +1038,14 @@ p.cv.boxplots <- ggplot(toPlot, aes(x=degree, y = Rsquared, fill = degree)) +
   ylab(expression(paste("Cross-validated ", R^2, sep=""))) +
   xlab("Network distance") +
   geom_text(data=tests.pvals, aes(label=format(value, scientific=T))) +
-  theme(legend.position="none") +
-  panel_border()
+  theme_bw() +
+  theme(legend.position="none",
+        panel.grid = element_blank())
+
+toPlot.points <- toPlot %>% 
+  group_by(metabolite) %>%
+  filter(degree == 1) %>%
+  filter(Rsquared == max(Rsquared,na.rm = T))
 
 toPlot <- toPlot %>% 
   group_by(metabolite) %>%
@@ -1010,14 +1053,13 @@ toPlot <- toPlot %>%
 
 p.cv <- ggplot(toPlot, aes(x = met_name, y = Rsquared, fill=degree)) +
   geom_bar(position="dodge", stat = "identity") +
+  geom_point(data = toPlot.points, aes(x = met_name, y = Rsquared)) +
   ylab(expression(paste("Cross-validated ", R^2, sep=""))) +
   xlab("") +
   scale_y_continuous(breaks = seq(0, 1, 0.2), labels = as.character(seq(0, 1, 0.2)), limits = c(0,0.8)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = c(0.2, 0.7)) +
   background_grid(major = "y", minor = "y") +
   panel_border() 
-
-
 
 # ---- networks part ------
 
@@ -1373,7 +1415,10 @@ toPlot <- bind_rows(lapply(seq_along(overlap.plots),
 p.overlaps <-ggplot(toPlot, aes(x=value, fill=degree)) +
   geom_density(alpha = 0.5) +
   xlab("Overlap of metabolite neighbours") +
-  theme(legend.position = c(0.5,0.5))
+  theme_bw() +
+  theme(legend.position = c(0.5,0.5),
+        panel.grid = element_blank())
+  
   
 # overlaps with total network
 total <- length(unique(dataset.genes$genes))
@@ -1384,9 +1429,392 @@ toPlot <- dataset.genes %>%
 p.network_overlaps <- ggplot(toPlot, aes(x=fraction, fill=degree)) +
   geom_density(alpha = 0.5) +
   xlab("Metabolite neighbourhood as a fraction metabolic network") +
-  theme(legend.position = c(0.5,0.5))
+  theme_bw() +
+  theme(legend.position = c(0.5,0.5),
+        panel.grid = element_blank())
+  
   
 
+# ---- predictor concentrations ------------
+load("../Michael_AA/data/2016-03-30/01_Workspace.Rdata")
+load("./R/objects/all_final_models.importance.models_summary2.RData")
+
+metabolites.models.long <- all_final_models %>% 
+  filter(isImputed == 0, metabolite != "Glu") %>%
+  dplyr::select(model, RMSE, Rsquared, normalization, dataset, metabolite, degree, preprocessing) %>% 
+  distinct() %>%
+  group_by(metabolite, normalization, degree, preprocessing) %>%
+  #group_by(metabolite) %>%
+  filter(RMSE == min(RMSE,na.rm = T)) %>%
+  group_by(metabolite) %>% filter(degree <= 5) %>%
+  filter(Rsquared == max(Rsquared,na.rm = T))
+
+metabolites.models.long <- metabolites.models.long %>% dplyr::rename(algorithm = model)
+
+#metabolites.models.long %>% group_by(metabolite, normalization, degree, preprocessing) %>% summarise(metabolite_n = n()) %>% View
+predictors.dataset <- left_join(metabolites.models.long, all_final_models.importance) 
+
+metabolite.predictors <- predictors.dataset %>% 
+  group_by(metabolite,id) %>% 
+  arrange(abs(loading)) %>% 
+  filter(row_number()<=10) %>% filter(Overall >= 50) %>%
+  ungroup() %>%
+  dplyr::select(metabolite, degree, gene ) %>% group_by(metabolite, degree, gene) %>% distinct()
+
+load("./R/objects/overlaps.gene_overlaps.RData")
+load("./R/objects/dataset.genes.gene_overlaps.RData")
+
+metabolite.predictors$gene_name <- orf2name$gene_name[match(metabolite.predictors$gene, orf2name$ORF)]
+dataset.genes <- dataset.genes %>% dplyr::rename(gene = genes)
+
+dataset.predictors <- left_join(dataset.genes, metabolite.predictors) %>% 
+  mutate(is.Predictor = ifelse(is.na(gene_name), 0, 1)) %>%
+  group_by(metabolite, degree) %>%
+  filter(sum(is.Predictor)>0)
+
+data.long <- tbl_df(melt(data, id.vars = c("ORF", "gene")))
+dataset.predictors <- left_join(dataset.predictors, data.long, by = c("metabolite" = "variable", "gene" = "ORF") ) %>% filter(!is.na(value))
+
+
+### background only non-predictors
+load("./R/objects/dataset.genes.gene_overlaps.RData")
+
+dataset.genes <- dataset.genes %>% dplyr::rename(gene = genes)
+
+dataset.predictors <- left_join(dataset.genes, metabolite.predictors) %>% 
+  mutate(is.Predictor = ifelse(is.na(gene_name), 0, 1)) %>% filter(is.Predictor == 1) %>%
+  group_by(gene) %>% mutate(n_gene = n())
+
+
+bg <- left_join(dataset.genes %>% filter(!(gene %in% metabolite.predictors$gene)), metabolite.predictors) %>% 
+  mutate(is.Predictor = 0)
+bg <- bg %>% group_by(metabolite, gene) %>% distinct()
+
+dataset.predictors <- bind_rows(dataset.predictors, bg)           
+#dataset.predictors <- bind_rows(dataset.predictors %>% filter(n_gene <10), bg) 
+
+data.long <- tbl_df(melt(data, id.vars = c("ORF", "gene")))
+dataset.predictors <- left_join(dataset.predictors, data.long, by = c("metabolite" = "variable", "gene" = "ORF") ) %>% filter(!is.na(value))
+
+
+toPlot <- dataset.predictors %>% filter(!is.na(value))
+
+toPlot <- toPlot %>% group_by(metabolite) %>%
+  mutate(valueZ = (value - mean(value, na.rm = T))/sd(value, na.rm = T))
+
+# adjust concentration with volume and OD from this paper: doi:10.1016/j.funbio.2009.11.002
+my.vol = c(median = 45.54, sd = 0.9) * 1e-15 # cell vol
+my.cells = 3.2 * 10^7 * 1.5*5 # median of spectrophotometre data
+#different dilution used fot AA protocol
+ex.vol = 200*1e-6
+
+toPlot$value = toPlot$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
+
+
+
+toPlot.stats <- ddply(toPlot, .(metabolite),
+                      .fun = function(x) {
+                        Z <<- x
+                        x <- Z
+                        x = x[!is.na(x$value),]
+                        n_pred = sum(x$is.Predictor == 1)
+                        n_bg = sum(x$is.Predictor == 0)
+                        if (n_pred >2 && n_bg >2 ) {
+                          #p.value = leveneTest(value~as.factor(is.Predictor), data = x)$`Pr(>F)`
+                          p.value_bartlett = bartlett.test(value~as.factor(is.Predictor), data = x)$p.value
+                          p.value_wilcox  = wilcox.test(x$value[x$is.Predictor == 1], x$value[x$is.Predictor == 0])$p.value
+                          p.value_var = var.test(x$value[x$is.Predictor == 1], x$value[x$is.Predictor == 0], alternative = "greater")$p.value
+                          return(data.frame(ymax = max(x$value), p.value_bartlett, p.value_wilcox, p.value_var))
+                        }
+                      })
+
+toPlot.stats$label = ifelse(toPlot.stats$p.value_var <0.05, "*", "")
+toPlot.stats$label = ifelse(toPlot.stats$p.value_var <0.01, "**", toPlot.stats$label)
+
+
+
+p.enzyme_predictor <- ggplot(toPlot, aes(y = value, x = is.Predictor)) +
+  geom_boxplot(aes(colour = factor(is.Predictor)))  +
+  geom_jitter(data = toPlot, width = .3, aes(y = value, x = is.Predictor, colour = factor(is.Predictor))) +
+  geom_text(data = toPlot.stats, size = 10, aes(y = ymax-0.20*ymax, x = 0.5, label = label ) ) +
+  facet_wrap(~metabolite, scales = "free", nrow = 1) + 
+  theme_bw() +
+  xlab("") +
+  ylab("Intracellular metabolite concentration, mM") +
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.grid = element_blank())
+
+#ranges
+toPlot.summary <- toPlot %>% group_by(metabolite, is.Predictor) %>%  
+  summarise(IQR = IQR(valueZ),
+            rangeZ = sum(abs(range(valueZ))))
+
+toPlot.summary.stats <- toPlot.summary %>% ungroup() %>%
+  summarise(p.value = wilcox.test(rangeZ[is.Predictor == 1], rangeZ[is.Predictor == 0])$p.value)
+
+toPlot.summary.medians <- toPlot.summary %>% group_by(is.Predictor) %>%
+  summarise(medianZ = median(rangeZ, na.rm = T))
+
+p.rangez <- ggplot(toPlot.summary, aes(x = rangeZ, fill= factor(is.Predictor))) + 
+  geom_density(alpha =.5) +
+  geom_vline(data = toPlot.summary.medians, linetype=2, aes(xintercept = medianZ, colour = factor(is.Predictor))) +
+  annotate(geom = "text", x = 6, y = 0.3, 
+           label = paste("P-value =", format(toPlot.summary.stats$p.value, digits = 2, scientific = T), sep = "")) +
+  xlab("Sum of absolute extreme values of metabolite z-scores") +
+  theme_bw() + 
+  theme(legend.position = c(0.7, 0.2),
+        aspect.ratio = 1)
+
+
+
+#### ----- Example of few metabolites  vs WT -------
+
+load("./R/objects/dataTCA.create_datasets.RData")
+load("./R/objects/dataAA.create_datasets.RData")
+metabolitesTCA.long = melt(dataTCA$metabolites)
+metabolitesTCA.long$dataset = "TCA"
+
+metabolitesAA.long = melt(dataAA$metabolites)
+metabolitesAA.long$dataset = "AA"
+
+
+# adjust concentration with volume and OD from this paper: doi:10.1016/j.funbio.2009.11.002
+my.vol = c(median = 45.54, sd = 0.9) * 1e-15 # cell vol
+my.cells = 3.2 * 10^7 * 1.5*5 # median of spectrophotometre data
+ex.vol = 100*1e-6
+
+metabolitesTCA.long$concentration = metabolitesTCA.long$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
+
+#different dilution used fot AA protocol
+ex.vol = 200*1e-6
+
+metabolitesAA.long$concentration = metabolitesAA.long$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
+
+
+metabolites.long = rbind(metabolitesAA.long, metabolitesTCA.long)
+metabolites.long = merge(metabolites.long, unique(droplevels(subset(metabolite2iMM904,select=c("id", "kegg_id")))), by.x="X2", by.y="id")
+metabolites.long$label = metabolite2iMM904$official_name[match(metabolites.long$kegg_id, metabolite2iMM904$kegg_id )]
+
+metabolites.long$gene_name <- exp_metadata$gene[match(metabolites.long$X1, exp_metadata$sample_name)] 
+metabolites.long$ORF <- exp_metadata$ORF[match(metabolites.long$X1, exp_metadata$sample_name)] 
+
+# metabolites.long %>% filter(gene_name %in% c("VPS15", "WT"), X2 %in% c("citrate", "histidine")) %>% View()
+# metabolites.long %>% filter(gene_name %in% c("MKK1", "VPS15","AKL1", "WT"), X2 %in% c("citrate", "histidine")) %>% View()
+
+load("./R/objects/all_final_models.models_summary2.RData")
+load("./R/objects/file.list.models_summary2.RData")
+load("./R/objects/proteins.matrix.quant.combat.RData")
+
+proteins.matrix = proteins.matrix.quant.combat
+
+met = c("aspartate", "tyrosine", "threonine", "tryptophan", "lysine", "homo.serine", "glycine")
+metabolites.long.selected <- metabolites.long %>% filter(gene_name %in% c("VPS15", "WT"), X2 %in% met, dataset == "AA")
+
+
+metabolite.predictors <- predictors.dataset %>% 
+  group_by(metabolite,id) %>% 
+  arrange(abs(loading)) %>% 
+  filter(row_number()<=5) %>% filter(Overall >= 80) %>%
+  ungroup() %>%
+  dplyr::select(metabolite, degree, gene ) %>% 
+  group_by(metabolite, degree, gene) %>% distinct() %>% 
+  group_by(metabolite) %>%
+  filter(row_number()<= 5) 
+
+metabolite.predictors.selected <- metabolite.predictors %>% filter(metabolite %in% met)
+
+#metabolite example plot for VPS15
+toPlot <- metabolites.long.selected %>% 
+  group_by(X2, gene_name) %>%
+  summarize(mean_concentration = mean(concentration, na.rm = T),
+            sd_concentration = sd(concentration, na.rm = T))
+
+toPlot$gene_name = factor(toPlot$gene_name, levels = c("WT", "VPS15"))
+
+p.aa_conc <- ggplot(toPlot, aes(y = mean_concentration, x = gene_name, fill = gene_name)) +
+  geom_bar(position="dodge", stat="identity") +
+  facet_wrap(~X2, ncol = 1, scales = "free") +
+  geom_errorbar(aes(ymax = mean_concentration + sd_concentration, ymin = mean_concentration - sd_concentration), 
+                position = "dodge", width=0.25) +
+  ylab("Intracellular metabolite concentraion, mM") +
+  theme_bw() + 
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(), legend.position = c(0.5, 0.5))
+
+protein.matrix.long <- tbl_df(melt(proteins.matrix))
+protein.matrix.long.f <- protein.matrix.long %>% 
+  filter( X2 %in% as.character(unique(metabolites.long.selected$X1)), 
+          X1 %in% unique(metabolite.predictors.selected$gene))
+
+protein.matrix.long.f$gene_name <- exp_metadata$gene[match(protein.matrix.long.f$X2, exp_metadata$sample_name)]
+
+metabolite.predictors.selected.proteins <- left_join(metabolite.predictors.selected, protein.matrix.long.f, by = c("gene" = "X1"))
+
+toPlot = metabolite.predictors.selected.proteins %>% 
+  group_by(metabolite, gene) %>%
+  mutate(value_rel = exp(value)/max(exp(value))) %>%
+  group_by(metabolite, gene, gene_name) %>%
+  summarize(mean_value = mean(value_rel, na.rm = T),
+            sd_value = sd(value_rel, na.rm = T))
+
+toPlot$predictor_label <- orf2name$gene_name[match(toPlot$gene, orf2name$ORF)]
+toPlot$gene_name = factor(toPlot$gene_name, levels = c("WT", "VPS15"))
+
+p.aa_predictors <- ggplot(toPlot, aes(y = mean_value, x = predictor_label, fill = gene_name )) +
+  geom_bar(position="dodge", stat="identity") +
+  geom_errorbar(data = toPlot, aes(ymax = mean_value + sd_value, ymin = mean_value - sd_value), 
+                position = position_dodge(width = 0.9), width = 0.5 ) +
+  facet_wrap(~metabolite, ncol = 1, scales = "free") +
+  scale_y_continuous(limits = c(0,1.25), breaks = c(0, 0.5, 1) ) +
+  ylab("Relative protein abundance") +
+  theme_bw() + 
+  theme(legend.position = c(0.5,0.5),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank())
+
+
+# ------ predictors specificity ----------
+
+load("./R/objects/all_final_models.importance.models_summary2.RData")
+load("./R/objects/all_final_models.models_summary2.RData")
+load("./R/objects/file.list.models_summary2.RData")
+
+load("./R/objects/proteins.matrix.combat.quant.RData")
+
+my_means <- function(proteins.matrix) {
+  
+  proteins.long = melt(proteins.matrix, id.vars="rownames")
+  names(proteins.long) = c("EG.StrippedSequence", "R.Label", "signal")
+  proteins.long$ORF = exp_metadata$ORF[match(proteins.long$R.Label, exp_metadata$sample_name)]
+  proteins.long.mean = tbl_df(proteins.long) %>% group_by(EG.StrippedSequence, ORF) %>% summarize(mean = mean(signal))
+  proteins.mean.df = dcast(proteins.long.mean, formula=EG.StrippedSequence~ORF, value.var="mean")
+  
+  proteins.mean.matrix = as.matrix(proteins.mean.df[,-1])
+  rownames(proteins.mean.matrix) = as.matrix(proteins.mean.df$EG.StrippedSequence)
+  return(proteins.mean.matrix)  
+}
+
+
+protein.matrix.mean = my_means(exp(proteins.matrix.combat.quant))
+
+unique(all_final_models$model)
+
+metabolites.models.long <- all_final_models %>% 
+  filter(isImputed == 0, metabolite != "Glu") %>%
+  dplyr::select(model, RMSE, Rsquared, normalization, dataset, metabolite, degree, preprocessing) %>% 
+  distinct() %>%
+  group_by(metabolite, normalization, degree, preprocessing) %>%
+  #group_by(metabolite) %>%
+  filter(RMSE == min(RMSE,na.rm = T)) %>%
+  group_by(metabolite) %>% filter(degree <= 5) %>%
+  filter(Rsquared == max(Rsquared,na.rm = T))
+metabolites.models.long <- metabolites.models.long %>% rename(algorithm = model)
+
+predictors.dataset <- left_join(metabolites.models.long, all_final_models.importance) 
+# 
+# metabolite.predictors <- predictors.dataset %>% filter(Overall >= 50) %>%
+#   dplyr::select(metabolite, degree, gene ) %>% group_by(metabolite, degree, gene) %>% distinct()
+
+metabolite.predictors <- predictors.dataset %>% 
+  group_by(metabolite,id) %>% 
+  arrange(abs(loading)) %>% 
+  filter(row_number()<=10) %>% filter(Overall >= 50) %>%
+  ungroup() %>%
+  dplyr::select(metabolite, degree, gene ) %>% group_by(metabolite, degree, gene) %>% distinct()
+
+proteins.FC.f.stats <- proteins.FC.f %>% 
+  group_by(KO) %>%
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
+  summarize(n_metabolic = sum(isMetabolic == T),
+            n_yeast  = sum(isiMM904),
+            n_total = n())
+
+changed.genes <- proteins.FC.f %>% 
+  group_by(KO) %>% arrange() %>%
+  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
+  dplyr::select(ORF, KO)
+
+changed.genes <- melt(protein.matrix.mean)
+names(changed.genes) <- c("ORF", "KO", "value")
+changed.genes <- changed.genes %>% filter(KO != "none")
+
+# changed.genes <- proteins.FC.f %>% 
+#   group_by(KO) %>% arrange() %>%
+#   dplyr::select(ORF, KO, logFC)
+
+
+metabolite.predictors <- metabolite.predictors %>%
+  group_by(metabolite, degree) %>%
+  mutate(n_predictors = n())
+
+# cosineDist <- function(x){
+#   as.dist(1 - x%*%t(x)/(sqrt(rowSums(x^2) %*% t(rowSums(x^2))))) 
+# }
+
+changed.predictors <- inner_join(metabolite.predictors, changed.genes, by = c("gene" = "ORF" ))
+
+changed.predictors %>% group_by(metabolite, degree, n_predictors) %>% mutate(n_ko = length(unique(KO))) 
+
+kinase.distances <- ddply(changed.predictors, .(metabolite, degree, n_predictors), 
+                          .fun = function(x) {
+                            #Z <<-x
+                            #x <- Z
+                            #tmp.df <- dcast(data = x, formula = "KO ~ gene", fun.aggregate = length)
+                            
+                            tmp.df <- reshape2::dcast(data = x, formula = "KO~gene", value.var = "value")
+                            tmp.matrix <- as.matrix(tmp.df[,-1])
+                            rownames(tmp.matrix) = tmp.df[,1]
+                            d = stats::dist(scale(tmp.matrix), method = "euclidean" )
+                            #d = stats::dist(tmp.matrix, method = "binary" )
+                            
+                            d.matrix <- as.matrix(d)
+                            d.matrix[upper.tri(d.matrix)] <- NA
+                            diag(d.matrix) <- NA
+                            return(melt(d.matrix))
+                            
+                          } )
+
+metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
+metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
+
+toPlot <- kinase.distances 
+toPlot$metabolite.label <- toupper(metabolite2iMM904$model_name[match(toPlot$metabolite, metabolite2iMM904$id)])
+toPlot.stats <- toPlot %>% 
+  group_by(metabolite, metabolite.label) %>%
+  summarise(median = median(1 - value, na.rm = T)) %>% 
+  ungroup() %>%
+  arrange(median)
+
+
+toPlot$metabolite <- factor(toPlot$metabolite, levels = rev(toPlot.stats$metabolite))
+toPlot$metabolite.label <- factor(toPlot$metabolite.label, levels = rev(unique(toPlot.stats$metabolite.label)))
+toPlot <- toPlot %>% ungroup() %>% mutate(value100 = value/max(value, na.rm = T))
+
+p.specificity <- ggplot(toPlot, aes(x = value100)) +
+  geom_density(fill="black") +
+  facet_grid(metabolite.label ~ . ) +
+  xlab("Predictors response similarity following kinase deletion, Jaccard index") +
+  #theme_bw() +
+  theme(axis.line.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.y = element_text(angle=0),
+        strip.background = element_rect(colour = NULL), aspect.ratio = 1/10) 
+
+p.specificity$toScale <- F
+plots.list <- lappend(plots.list, p.specificity)
+
+p.specificity_violin <- ggplot(toPlot, aes(x = metabolite.label, y = value100)) +
+  geom_violin(fill="black") +
+  geom_boxplot(width = 0.25, outlier.shape = NA) +
+  ylab("Predictors response distance following kinase deletion") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
 
 
 # ---- Figure3 --------------
@@ -1433,7 +1861,7 @@ plot_figure3_v2 <- function() {
   print(p.enzymes, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 46:60)) #example heatmap of glutamine
   print(p.met, vp = viewport(layout.pos.row = 16:30, layout.pos.col = 46:60)) #same
   
-  print(p.trna, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 31:46)) #example heatmap of glutamine
+  print(p.trna_separate, vp = viewport(layout.pos.row = 1:45, layout.pos.col = 31:46)) #example heatmap of glutamine
   print(p.aatca, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 46:60)) #same
 }
 
@@ -1476,6 +1904,12 @@ plot_figure4_v1 <- function() {
   
   print(p.metabolite_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col = 1:30))
   print(p.kinase_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col = 31:60))
+  
+  print(p.aa_conc, vp = viewport(layout.pos.row = 55:90, layout.pos.col = 1:5))
+  print(p.aa_predictors, vp = viewport(layout.pos.row = 55:90, layout.pos.col = 6:15))
+  print(p.enzyme_predictor, vp = viewport(layout.pos.row = 55:65, layout.pos.col = 1:60))
+  print(p.rangez, vp = viewport(layout.pos.row = 66:90, layout.pos.col = 16:30))
+  print(p.specificity_violin, vp = viewport(layout.pos.row = 66:90, layout.pos.col = 31:60))
   
 }
 
