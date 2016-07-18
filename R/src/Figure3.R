@@ -28,7 +28,7 @@ orf2name$gene_name = as.character(orf2name$gene_name)
 orf2name$gene_name[orf2name$gene_name ==""] = orf2name$ORF[orf2name$gene_name ==""]
 
 
-
+plots.list = list()
 
 fun_name = "Figure3"
 
@@ -212,7 +212,7 @@ read_models.aic.predict = function(x) {
 }
 
 file.list = lapply(matches, FUN=read_models.aic.predict)
-all_final_models.models = do.call(rbind.data.frame, file.list)
+all_final_models.models = do.call(rbind.data.frame, file.list) #stores MLR models including min/max kinases
 
 all_final_models.models$metabolite = all_final_models.models$species
 all_final_models.models$metabolite = sub(x=all_final_models.models$metabolite, pattern="log.quant.(.*)", replacement="\\1")
@@ -396,9 +396,31 @@ read_models = function(x) {
   
   models = my_models$models
   
-  fit = models[[as.numeric(x[[2]])]][[x[[3]]]]
   
+  fit = models[[as.numeric(x[[2]])]][[x[[3]]]]
   yhat = predict(fit, fit$model[,-1])
+  
+  
+  response.trans  = my_models$trans
+  predictions.untransformed <- yhat
+  y.untransformed <- fit$model[,1]
+  
+  if(!is.null(response.trans$std)) {
+    predictions.untransformed <- predictions.untransformed*response.trans$std[1]
+    y.untransformed <- y.untransformed*response.trans$std[1]
+  }
+  
+  if(!is.null(response.trans$mean)) {
+    predictions.untransformed <- predictions.untransformed + response.trans$mean[1]
+    y.untransformed <- y.untransformed + response.trans$mean[1]
+  }
+  
+  if(!is.null(response.trans$bc)) {
+    predictions.untransformed <- inverse.BoxCoxTrans(response.trans$bc[[1]], predictions.untransformed)
+    y.untransformed <- inverse.BoxCoxTrans(response.trans$bc[[1]], y.untransformed)
+  }
+  
+  
   table = data.frame(metabolite = x[[1]],
                      model = x[[2]],
                      type = x[[3]],
@@ -409,7 +431,9 @@ read_models = function(x) {
                      median.cv.r2 =  x[[6]],
                      predictors = paste(names(coefficients(fit)[-1]), collapse = ":"),
                      coefficients = paste(coefficients(fit)[-1], collapse = ":"),
-                     sample_name = rownames(fit$model))
+                     sample_name = rownames(fit$model),
+                     predictions.untransformed = predictions.untransformed, 
+                     y.untransformed = y.untransformed)
   return(table)
 }
 
@@ -450,6 +474,26 @@ p.met = ggplot(toPlot, aes(x = yhat, y=y))+
               fullrange=F) +
   panel_border() +
   theme(aspect.ratio = 1)
+
+stats.text$x = sort(prediction.models$predictions.untransformed)[2]
+stats.text$y = sort(prediction.models$predictions.untransformed, decreasing = T)[2]
+
+p.met.untransformed = ggplot(toPlot, aes(x = predictions.untransformed, y = y.untransformed))+
+  geom_point() +
+  geom_text(data=stats.text, aes(x = x,y = y,label=round(adj.r.squared,2))) +
+  geom_point(data = toMark, aes(x = predictions.untransformed, y = y.untransformed), colour="red") +
+  geom_text(data = toMark, aes(x = predictions.untransformed, y = y.untransformed, label=gene), check_overlap = TRUE) +
+  xlab("Predicted metabolite concentration, µM") +
+  ylab("Observed metabolite concentration, µM") +
+  geom_smooth(method=lm,   # Add linear regression lines
+              se=F,    # Don't add shaded confidence region
+              fullrange=F) +
+  panel_border() +
+  theme(aspect.ratio = 1)
+
+file_name = paste(input_path,x[[4]], sep="/") 
+my_models = get(load(file_name))
+models = my_models$models
 
 
 proteins.log.quant = t(proteins.matrix.combat.quant)
@@ -516,13 +560,13 @@ library(cowplot)
 
 p.enzymes <- ggplot() + 
   geom_tile(data = toPlot, aes(y=variable_name, x=gene, fill=value)) +
-  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+  scale_fill_gradient2(low = "blue4", high = "red4", mid = "white", 
                        midpoint = 0, limit = c(-2,2), space = "Lab", 
                        name="Protein expression") +
   ylab("Effector enzyme") +
   xlab("Kinase knockout") +
   geom_point(data=toPlot_coefs, aes(y=variable_name, x=5, size=abs(weight), colour=effector)) +
-  theme(legend.position="none", aspect.ratio = 1) 
+  theme(legend.position="top", aspect.ratio = 1) 
 
 p.enzymes <- ggdraw(switch_axis_position(p.enzymes , axis = 'x'))
 
@@ -530,6 +574,30 @@ p.enzymes <- ggdraw(switch_axis_position(p.enzymes , axis = 'x'))
 # metabolite_data <- get(load(paste("./results/2016-02-24/data.AA/", data_file, sep = "")))
 # colnames(metabolite_data) = c(met, orf2name$gene_name[match(colnames(metabolite_data), orf2name$ORF)][-1])
 
+#GLN1 example
+
+x <- tmp.list
+file_name = paste(input_path,x[[1]][4], sep="/") 
+my_models = get(load(file_name))
+models = my_models$models
+fit = models[[as.numeric(x[[1]][2])]][x[[1]][3]]
+used.samples <- rownames(fit$after$model)
+data.tmp = my_models$input_data
+data.tmp <- data.tmp[rownames(data.tmp) %in% used.samples,]
+
+toPlot <- data.tmp[, c(met, orf2name$ORF[orf2name$gene_name == "GLN1"])]
+names(toPlot) <- c("y", "x")
+
+p.gln1 <- ggplot(toPlot, aes(x =x , y = y) ) +
+  geom_point() +
+  xlab("Predicted metabolite concentration, µM") +
+  ylab("Observed metabolite concentration, µM") +
+  geom_smooth(method=lm,   # Add linear regression lines
+              se=F,    # Don't add shaded confidence region
+              fullrange=F) +
+  panel_border() +
+  theme(aspect.ratio = 1)
+plots.list <- lappend(plots.list, p.gln1)
 
 # --- example small graph ---- 
 
@@ -997,10 +1065,10 @@ metabolites.models.long <- all_final_models %>%
   group_by(metabolite, degree) %>%
   filter(Rsquared == max(Rsquared,na.rm = T))
 
+length(unique(all_final_models$model))
 
 metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
 metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
-
 
 
 toPlot <- metabolites.models.long %>% filter(metabolite %in% metabolite.order$metabolite)
@@ -1070,6 +1138,7 @@ predicted.metabolites.long <- all_final_models %>%
   group_by(metabolite) %>%
   filter(Rsquared == max(Rsquared,na.rm = T))
 
+
 tmp = file.list[[2]] #some of sample names are not annotated, some algorithms did not keep rownames in their model matrix
 tmp <- tmp[tmp$model == "glmStepAICModel",] %>% 
   dplyr::select(knockout) %>%
@@ -1083,7 +1152,7 @@ predicted.metabolites.long$knockout <- predicted.metabolites.long$knockout_name
 predicted.metabolites <- predicted.metabolites.long %>%
   dplyr::select(pred, knockout, metabolite) %>% 
   ungroup() %>%
-  spread(knockout, pred)
+  dcast(formula = "metabolite ~ knockout", value.var = "pred")
 
 
 #dcast(predicted.metabolites, formula = "knockout ~ metabolite", value.var = "pred")
@@ -1286,6 +1355,7 @@ node_properties$node_size[is.na(node_properties$node_size)] <- 1
 node_properties$node_size <- 2^(node_properties$node_size)
 
 #B <- network(get.adjacency(net2, attr="weight"))
+
 B <- network(edges2,matrix.type='edgelist', ignore.eval = FALSE)
 
 #node attributes
@@ -1306,6 +1376,8 @@ tmp.sizes[B %e% "type" != "met->met"] <- as.numeric(cut(abs(tmp.sizes[B %e% "typ
 tmp.sizes[B %e% "type" == "met->met"] <- 1
 set.edge.attribute(B, "edge_size", (2^tmp.sizes)/5)
 set.seed(123)
+
+
 p.metabolite_picture <- ggnet2(B, label.size = 3, edge.alpha = 1,
                            label = T, 
                            color = "color",
@@ -1369,7 +1441,9 @@ distance <- unique(overlaps.f$degree)
 
 for (i in 1:length(distance)) {
   
-  overlaps.wide1 <- dcast(overlaps.f %>% filter(degree == distance[i]), formula = "metabolite1~metabolite2", value.var = "overlap")
+  overlaps.f$metabolite1.lab <- toupper(metabolite2iMM904$model_name[match(overlaps.f$metabolite1, metabolite2iMM904$id)])
+  overlaps.f$metabolite2.lab <- toupper(metabolite2iMM904$model_name[match(overlaps.f$metabolite2, metabolite2iMM904$id)])
+  overlaps.wide1 <- dcast(overlaps.f %>% filter(degree == distance[i]), formula = "metabolite1.lab~metabolite2.lab", value.var = "overlap")
   
   overlaps.wide1.matrix <- as.matrix(overlaps.wide1[,-1])
   rownames(overlaps.wide1.matrix) <- overlaps.wide1[,1]
@@ -1394,16 +1468,24 @@ for (i in 1:length(distance)) {
                     my_label = c("", my.order[-length(my.order)]),
                     my_label2 = my.order, 
                     stringsAsFactors = F)
+  
   p = ggplot(toPlot, aes(x = Var1, y = Var2)) +
     geom_tile(fill="white") +
     geom_point(aes(size = abs(value), color=value),pch=20) +
     scale_colour_gradient(limits=c(0, 1), low="gray90", high="black") +
-    geom_text(data = text , aes(x=x, y=y, label=my_label2)) 
-  
+    geom_text(data = text , aes(x=x, y=y, label=my_label2)) +
+    xlab("") +
+    ylab("") +
+    theme(axis.ticks = element_blank(), 
+          axis.text.x = element_blank(),
+          axis.line.x = element_blank(),
+          legend.position = c(0.66,0.33),
+          aspect.ratio = 1)
+  plots.list <- lappend(plots.list, p)
   overlap.plots[[i]] <- p
 }
 
-overlap.plots[[1]]
+
 
 toPlot <- bind_rows(lapply(seq_along(overlap.plots), 
                            function (x) {
@@ -1682,7 +1764,7 @@ p.aa_predictors <- ggplot(toPlot, aes(y = mean_value, x = predictor_label, fill 
 load("./R/objects/all_final_models.importance.models_summary2.RData")
 load("./R/objects/all_final_models.models_summary2.RData")
 load("./R/objects/file.list.models_summary2.RData")
-
+load("./R/objects/protens.F")
 load("./R/objects/proteins.matrix.combat.quant.RData")
 
 my_means <- function(proteins.matrix) {
@@ -1701,8 +1783,6 @@ my_means <- function(proteins.matrix) {
 
 protein.matrix.mean = my_means(exp(proteins.matrix.combat.quant))
 
-unique(all_final_models$model)
-
 metabolites.models.long <- all_final_models %>% 
   filter(isImputed == 0, metabolite != "Glu") %>%
   dplyr::select(model, RMSE, Rsquared, normalization, dataset, metabolite, degree, preprocessing) %>% 
@@ -1712,6 +1792,7 @@ metabolites.models.long <- all_final_models %>%
   filter(RMSE == min(RMSE,na.rm = T)) %>%
   group_by(metabolite) %>% filter(degree <= 5) %>%
   filter(Rsquared == max(Rsquared,na.rm = T))
+
 metabolites.models.long <- metabolites.models.long %>% rename(algorithm = model)
 
 predictors.dataset <- left_join(metabolites.models.long, all_final_models.importance) 
@@ -1726,25 +1807,26 @@ metabolite.predictors <- predictors.dataset %>%
   ungroup() %>%
   dplyr::select(metabolite, degree, gene ) %>% group_by(metabolite, degree, gene) %>% distinct()
 
-proteins.FC.f.stats <- proteins.FC.f %>% 
-  group_by(KO) %>%
-  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
-  summarize(n_metabolic = sum(isMetabolic == T),
-            n_yeast  = sum(isiMM904),
-            n_total = n())
-
-changed.genes <- proteins.FC.f %>% 
-  group_by(KO) %>% arrange() %>%
-  filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
-  dplyr::select(ORF, KO)
-
-changed.genes <- melt(protein.matrix.mean)
-names(changed.genes) <- c("ORF", "KO", "value")
-changed.genes <- changed.genes %>% filter(KO != "none")
-
+# proteins.FC.f.stats <- proteins.FC.f %>% 
+#   group_by(KO) %>%
+#   filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
+#   summarize(n_metabolic = sum(isMetabolic == T),
+#             n_yeast  = sum(isiMM904),
+#             n_total = n())
+# 
 # changed.genes <- proteins.FC.f %>% 
 #   group_by(KO) %>% arrange() %>%
-#   dplyr::select(ORF, KO, logFC)
+#   filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
+#   dplyr::select(ORF, KO)
+#
+
+changed.genes <- melt(protein.matrix.mean)
+ names(changed.genes) <- c("ORF", "KO", "value")
+ changed.genes <- changed.genes %>% filter(KO != "none")
+
+# changed.genes <- proteins.FC.f %>% 
+#    group_by(KO) %>% arrange() %>%
+#    dplyr::select(ORF, KO, logFC)
 
 
 metabolite.predictors <- metabolite.predictors %>%
@@ -1783,21 +1865,49 @@ metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pat
 
 toPlot <- kinase.distances 
 toPlot$metabolite.label <- toupper(metabolite2iMM904$model_name[match(toPlot$metabolite, metabolite2iMM904$id)])
+
 toPlot.stats <- toPlot %>% 
+  ungroup() %>% mutate(value100 = value/max(value, na.rm = T)) %>%
   group_by(metabolite, metabolite.label) %>%
-  summarise(median = median(1 - value, na.rm = T)) %>% 
+  summarise(median = median(value100, na.rm = T)) %>% 
   ungroup() %>%
-  arrange(median)
+  arrange(median) %>% mutate(row_n = row_number())
 
 
 toPlot$metabolite <- factor(toPlot$metabolite, levels = rev(toPlot.stats$metabolite))
 toPlot$metabolite.label <- factor(toPlot$metabolite.label, levels = rev(unique(toPlot.stats$metabolite.label)))
 toPlot <- toPlot %>% ungroup() %>% mutate(value100 = value/max(value, na.rm = T))
 
+selected_rows <- seq(1, nrow(toPlot.stats), 5)
+toPlot.stats.selected <- toPlot.stats %>%  filter(row_n  %in% selected_rows)
+
+
 p.specificity <- ggplot(toPlot, aes(x = value100)) +
   geom_density(fill="black") +
   facet_grid(metabolite.label ~ . ) +
-  xlab("Predictors response similarity following kinase deletion, Jaccard index") +
+  xlab("Predictors response distance following kinase deletion") +
+  xlim(c(0,1)) +
+  scale_x_continuous(labels=percent) +
+  #theme_bw() +
+  theme(axis.line.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.y = element_text(angle=0),
+        strip.background = element_rect(colour = NULL), aspect.ratio = 1/10) 
+p.specificity$toScale <- F
+plots.list <- lappend(plots.list, p.specificity)
+
+toPlot.selected <- filter(toPlot, metabolite.label %in% toPlot.stats.selected$metabolite.label)
+
+toPlot.stats.selected$metabolite.label <- factor(toPlot.stats.selected$metabolite.label, levels = toPlot.selected$metabolite.label)
+p.specificity.sel <- ggplot() +
+  geom_density(data = toPlot.selected, aes(x = value100), fill="black") +
+  geom_vline(data = toPlot.stats.selected, aes(xintercept = median), colour="red", linetype="longdash") +
+  facet_grid(metabolite.label ~ . ) +
+  xlab("Predictors response distance following kinase deletion") +
+  xlim(c(0,1)) +
+  scale_x_continuous(labels=percent) +
   #theme_bw() +
   theme(axis.line.y=element_blank(),
         axis.text.y=element_blank(),
@@ -1806,8 +1916,7 @@ p.specificity <- ggplot(toPlot, aes(x = value100)) +
         strip.text.y = element_text(angle=0),
         strip.background = element_rect(colour = NULL), aspect.ratio = 1/10) 
 
-p.specificity$toScale <- F
-plots.list <- lappend(plots.list, p.specificity)
+
 
 p.specificity_violin <- ggplot(toPlot, aes(x = metabolite.label, y = value100)) +
   geom_violin(fill="black") +
@@ -1815,6 +1924,103 @@ p.specificity_violin <- ggplot(toPlot, aes(x = metabolite.label, y = value100)) 
   ylab("Predictors response distance following kinase deletion") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90))
+
+
+toPlot <- predicted.metabolites.long %>% 
+  group_by(metabolite) %>%
+  summarise(RSD = sd(pred.untransformed, na.rm = T)/mean(pred.untransformed, na.rm = T))
+
+toPlot$metabolite <- factor(toPlot$metabolite, levels = rev(toPlot.stats$metabolite))
+toPlot$metabolite.label <- toupper(metabolite2iMM904$model_name[match(toPlot$metabolite, metabolite2iMM904$id)])
+toPlot$metabolite.label <- factor(toPlot$metabolite.label, levels = rev(unique(toPlot.stats$metabolite.label)))
+
+p.metabolites_rsd <- ggplot(toPlot, aes(x = metabolite.label, y = RSD )) +
+  geom_bar(stat = "identity") +
+  coord_cartesian(ylim=c(0,1)) +
+  scale_y_continuous(labels=percent) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+
+toPlot$metabolite.label <- factor(toPlot$metabolite.label, levels = unique(toPlot.stats$metabolite.label))
+p.metabolites_rsd.flipped <- ggplot(toPlot, aes(x = metabolite.label, y = RSD )) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels=percent) +
+  coord_flip( ylim=c(0,1)) +
+  theme_bw()
+
+p.specificity_rsd <- grid.arrange(p.specificity, p.metabolites_rsd.flipped, ncol=2)
+plots.list <- lappend(plots.list, p.specificity_rsd)
+
+toPlot.selected <- filter(toPlot, metabolite.label %in% toPlot.stats.selected$metabolite.label )
+p.metabolites_rsd.sel <- ggplot(toPlot.selected, aes(x = metabolite.label, y = RSD )) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels=percent) +
+  coord_flip(ylim = c(0,1)) +
+  theme_bw()
+  
+
+## -- toy example of saturation ----
+
+mm_kinetics <- function(S, Km, Vmax) {
+  V <- (Vmax*S)/(Km + S)
+  ret <- data.frame(S, Km, Vmax, V)
+  return(ret)
+}
+
+mmS_kinetics <- function(V, Km, Vmax) {
+  S <- Km/(Vmax-V)
+  ret <- data.frame(S, Km, Vmax, V)
+  return(ret)
+}
+
+
+Vmax = 10
+Km = 0.05
+S = seq(0, 5, 0.001)
+
+# simple MM kinetics
+data.list <- lapply(seq(10), FUN = function(x) {
+  mm_kinetics(S, Km, x)})
+toPlot <- do.call(rbind.data.frame, data.list)
+
+p.mm_kinetics <- ggplot(data = toPlot , aes(y = log(S/Km), x = V/Vmax)) +
+  geom_point() +
+  theme_bw()
+plots.list <- lappend(plots.list, p.mm_kinetics)
+
+# substare responsivness vs enzyme abundance
+Vmax = seq(1, 10, 0.01)
+Km = 0.05
+data.list <- lapply(seq(0.001, 5,length.out = 10), FUN = function(x) {
+  mmS_kinetics(x, Km, Vmax)})
+
+toPlot <- do.call(rbind.data.frame, data.list)
+
+toPlot <- toPlot %>% mutate(delta_S = log(S/Km) - log(lag(S/Km)),
+                            delta_Vmax = Vmax - lag(Vmax),
+                            delta_Vratio = V/Vmax - lag(V/Vmax) )
+
+p.S_vs_Vmax <- ggplot(data = toPlot , aes(y = log(S/Km), x = Vmax, colour=factor(V))) +
+  geom_point() + 
+  theme_bw() +
+  theme(aspect.ratio = 1, legend.position = c(0.7, 0.5))
+plots.list <- lappend(plots.list, p.S_vs_Vmax)
+
+
+p.responsivness1 <- ggplot(data = toPlot , aes(y = delta_S/delta_Vmax, x = log(S/Km), colour=factor(V))) +
+  geom_point() +
+  ylim(-20, 10) + 
+  theme_bw() +
+  theme(aspect.ratio = 1, legend.position = c(0.7, 0.5))
+plots.list <- lappend(plots.list, p.responsivness1)
+
+p.responsivness2 <- ggplot(data = toPlot , aes(y = delta_S/delta_Vratio, x = log(S/Km), colour=factor(V))) +
+  geom_point() +
+  ylim(-10, 100) +
+  theme_bw() +
+  theme(aspect.ratio = 1, legend.position = c(0.7, 0.5))
+plots.list <- lappend(plots.list, p.responsivness2)
+
 
 
 # ---- Figure3 --------------
@@ -1859,7 +2065,7 @@ plot_figure3_v2 <- function() {
   
   grid.text("C", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 31),gp=gpar(fontsize=20, col="black"))
   print(p.enzymes, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 46:60)) #example heatmap of glutamine
-  print(p.met, vp = viewport(layout.pos.row = 16:30, layout.pos.col = 46:60)) #same
+  print(p.met.untransformed, vp = viewport(layout.pos.row = 16:30, layout.pos.col = 46:60)) #same
   
   print(p.trna_separate, vp = viewport(layout.pos.row = 1:45, layout.pos.col = 31:46)) #example heatmap of glutamine
   print(p.aatca, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 46:60)) #same
@@ -1888,7 +2094,7 @@ dev.off()
 plot_figure4_v1 <- function() {
   
   grid.newpage() 
-  pushViewport(viewport(layout = grid.layout(90, 60)))
+  pushViewport(viewport(layout = grid.layout(130, 60)))
   grid.text("A", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=14, col="black"))
   print(p.cv, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #all metaoblites R
   
@@ -1910,6 +2116,7 @@ plot_figure4_v1 <- function() {
   print(p.enzyme_predictor, vp = viewport(layout.pos.row = 55:65, layout.pos.col = 1:60))
   print(p.rangez, vp = viewport(layout.pos.row = 66:90, layout.pos.col = 16:30))
   print(p.specificity_violin, vp = viewport(layout.pos.row = 66:90, layout.pos.col = 31:60))
+  print(p.metabolites_rsd, vp = viewport(layout.pos.row = 91:110, layout.pos.col = 31:60))
   
 }
 
@@ -1930,3 +2137,48 @@ dev.off()
 
 
 
+plot_figure4_v2 <- function() {
+  
+  grid.newpage() 
+  pushViewport(viewport(layout = grid.layout(130, 60)))
+  grid.text("A", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=14, col="black"))
+  print(p.cv, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #all metaoblites R
+  
+  grid.text("B", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=14, col="black"))
+  print(p.cv.boxplots, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 41:50)) #boxplots of Rs vs degree
+  
+  grid.text("C", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 51),gp=gpar(fontsize=14, col="black"))
+  print(p.overlaps, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 51:60)) #boxplots of Rs vs degree
+  
+  grid.text("D", just=c("left", "centre"), vp = viewport(layout.pos.row = 16, layout.pos.col = 51),gp=gpar(fontsize=14, col="black"))
+  print(p.network_overlaps, vp = viewport(layout.pos.row = 15:30, layout.pos.col = 51:60)) #boxplots of Rs vs degree
+  
+  
+  print(p.metabolite_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col = 1:30))
+  print(p.kinase_picture, vp = viewport(layout.pos.row = 21:60, layout.pos.col = 31:60))
+  
+  print(p.aa_conc, vp = viewport(layout.pos.row = 55:90, layout.pos.col = 1:5))
+  print(p.aa_predictors, vp = viewport(layout.pos.row = 55:90, layout.pos.col = 6:15))
+  print(p.enzyme_predictor, vp = viewport(layout.pos.row = 55:65, layout.pos.col = 1:60))
+  print(p.rangez, vp = viewport(layout.pos.row = 66:90, layout.pos.col = 16:30))
+  #summary(p.metabolites_rsd$data$RSD)
+  print(p.specificity.sel, vp = viewport(layout.pos.row = 66:90, layout.pos.col = 31:45))
+  print(p.metabolites_rsd.sel, vp = viewport(layout.pos.row = 66:90, layout.pos.col = 46:60)) 
+}
+
+
+
+file_name = "Figure4_v02_scripted.png"
+file_path = paste(figures_dir, file_name, sep="/")
+
+png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
+plot_figure4_v2()
+dev.off()
+
+
+file_name = "Figure4_v02_scripted.pdf"
+file_path = paste(figures_dir, file_name, sep="/")
+
+pdf(file_path, height=247/25.4*2, width=183/25.4*2)
+plot_figure4_v2()
+dev.off()
