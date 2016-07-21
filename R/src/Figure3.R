@@ -2066,8 +2066,8 @@ plot_figure3_v2 <- function() {
   grid.text("C", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 31),gp=gpar(fontsize=20, col="black"))
   print(p.enzymes, vp = viewport(layout.pos.row = 1:15, layout.pos.col = 46:60)) #example heatmap of glutamine
   print(p.met.untransformed, vp = viewport(layout.pos.row = 16:30, layout.pos.col = 46:60)) #same
-  
-  print(p.trna_separate, vp = viewport(layout.pos.row = 1:45, layout.pos.col = 31:46)) #example heatmap of glutamine
+  print(p.gln1, vp = viewport(layout.pos.row = 16:30, layout.pos.col = 31:46))
+  print(p.trna_separate, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 31:46)) #example heatmap of glutamine
   print(p.aatca, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 46:60)) #same
 }
 
@@ -2182,3 +2182,34 @@ file_path = paste(figures_dir, file_name, sep="/")
 pdf(file_path, height=247/25.4*2, width=183/25.4*2)
 plot_figure4_v2()
 dev.off()
+
+
+
+file_name = paste("supplementary", fun_name, sep = ".")
+file_path = paste(figures_dir, file_name, sep="/")
+
+lapply(seq_along(plots.list) , 
+       function(x) {
+         
+         tryCatch({
+           p <- plots.list[[x]]
+           scale = 1
+           if (length(p$toScale) != 0 && p$toScale == T  ){
+             scale = 2
+           }
+           ggplot2::ggsave(filename = paste(file_path, x , "pdf", sep = "."), device = NULL,
+                           plot = p, width = 210 , height = 297, units = "mm", scale = scale)
+           
+           ggplot2::ggsave(filename = paste(file_path, x , "png", sep = "."), device = NULL,
+                           plot = p, width = 210 , height = 297, dpi = 150, units = "mm", scale = scale)
+           
+         }, error = function(e) {
+           message(paste("Plot", "x", "sucks!" ))
+           return(NULL)
+         }, finally = {
+           message(paste("processed plot", x))
+         })
+       })
+
+
+
