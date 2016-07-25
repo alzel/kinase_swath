@@ -28,6 +28,7 @@ names(orf2name) = c("ORF", "gene_name")
 protein.matrix = proteins.matrix.combat.quant
 proteins.FC = proteins.matrix.combat.quant.FC
 
+
 reference = unique(as.character(proteins.FC$reference))
 
 pval_thr = 0.01
@@ -219,7 +220,6 @@ plots.list <- lappend(plots.list, p.degree_vs_metabolic)
 
 # all enzymes
 
-
 x = proteins.FC.f.metabolic
 x.wide <- dcast(x, "KO.gene ~ ORF", value.var = "logFC")
 x.wide[is.na(x.wide)] <- 0
@@ -388,6 +388,83 @@ p.sim_hist <- ggplot(toPlot, aes(x = value)) +
   xlab("Kinase perturbation similarity, % of common changes enzymes in contrast to WT") +
   facet_grid(type ~ .) +
   theme_bw()
+
+#### ---- Example of kinase pairs YPK1-YPK2, FUS3-KSS1, MEK1-MEK2 ----
+
+
+toSelect <- c("YPK1", "YPK2", "FUS3", "KSS1", "YCK1", "YCK2")
+
+proteins.FC.f$KO.gene <-  exp_metadata$gene[match(proteins.FC.f$KO, exp_metadata$ORF)]
+proteins.FC.selected.df <- dcast(proteins.FC.f[proteins.FC.f$KO.gene %in% toSelect,], formula = "ORF ~ KO.gene", value.var = "logFC")
+proteins.FC.selected.df$isiMM904 <- proteins.FC.selected.df$ORF %in% unique(iMM904$gene)
+
+toPlot <- proteins.FC.selected.df %>% filter(isiMM904)
+
+tmp.line <- data.frame(x = seq(-2, 2, by = 0.1))
+
+ggplot(toPlot, aes(x = YCK1, y = YCK2)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = FC_thr, linetype = 2 ) +
+  geom_hline(yintercept =  - FC_thr, linetype = 2) +
+  geom_vline(xintercept = FC_thr, linetype = 2 ) +
+  geom_vline(xintercept =  - FC_thr, linetype = 2) +
+  geom_vline(xintercept = 0) +
+  xlim(-2, 2) +
+  ylim(-2, 2) +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+
+
+p1 <- ggplot(toPlot, aes(x = YPK1, y = YPK2)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = FC_thr, linetype = 2 ) +
+  geom_hline(yintercept =  - FC_thr, linetype = 2) +
+  geom_vline(xintercept = FC_thr, linetype = 2 ) +
+  geom_vline(xintercept =  - FC_thr, linetype = 2) +
+  geom_vline(xintercept = 0) +
+  xlim(-2, 2) +
+  ylim(-2, 2) +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+
+
+p2 <- ggplot(toPlot, aes(x = KSS1, y = FUS3)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = FC_thr, linetype = 2 ) +
+  geom_hline(yintercept =  - FC_thr, linetype = 2) +
+  geom_vline(xintercept = FC_thr, linetype = 2 ) +
+  geom_vline(xintercept =  - FC_thr, linetype = 2) +
+  geom_vline(xintercept = 0) +
+  xlim(-2, 2) +
+  ylim(-2, 2) +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+
+
+p3 <- ggplot(toPlot, aes(x = YCK1, y = YCK2)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = FC_thr, linetype = 2 ) +
+  geom_hline(yintercept =  - FC_thr, linetype = 2) +
+  geom_vline(xintercept = FC_thr, linetype = 2 ) +
+  geom_vline(xintercept =  - FC_thr, linetype = 2) +
+  geom_vline(xintercept = 0) +
+  xlim(-2, 2) +
+  ylim(-2, 2) +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+
+p.pairs <- grid.arrange(p1, p2, p3, ncol = 3)
+
+plots.list <- lappend(plots.list, p.pairs)
+
 
 
 #### ---- overlaps up/down for supplementary --------------------
