@@ -1174,11 +1174,184 @@ p.dist_degree <- ggplot(toPlot , aes(x=factor(min.paths.comb), y=value)) +
   xlab("") +
   theme_bw()
 
+## ---- stats of kinase perturbation, quantified proteins etc ----
+
+load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+load("./R/objects/proteins.matrix.combat.quant.RData")
+load("./R/objects/iMM904._load_.RData")
+
+protein.matrix = proteins.matrix.combat.quant
+proteins.FC = proteins.matrix.combat.quant.FC
+
+pval_thr = 0.01
+set.seed(123)
+FC_thr = getFC_thr(proteins.matrix=protein.matrix, pval_thr=pval_thr)
 
 
+proteins.FC.f = droplevels(proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]) #only kinases
+proteins.FC.f$sign = ifelse(abs(proteins.FC.f$logFC) >= FC_thr & proteins.FC.f$p.value_BH < pval_thr, 1,0)
+proteins.FC.f$isiMM904 = proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
+
+
+proteins.FC.f.stats.all = proteins.FC.f %>% filter(p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% 
+  group_by(KO) %>% dplyr::summarise(changes = n()) %>%
+  ungroup() %>% summarise(min = min(changes),
+                          max = max(changes),
+                          median = median(changes),
+                          average = mean(changes))
+
+
+proteins.FC.f.stats.metabolic = proteins.FC.f %>% filter(isiMM904, p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% 
+  group_by(KO) %>% dplyr::summarise(changes = n()) %>%
+  ungroup() %>% summarise(min = min(changes),
+                          max = max(changes),
+                          median = median(changes),
+                          average = mean(changes))
+
+stats_table <- data.frame(stats_name = character(),
+                          value = character(), 
+                          rel_value = character(),
+                          comment=character(),
+                          stringsAsFactors=FALSE)
+
+#total expressed proteins in yeast 4,517 from 
+# Sina Ghaemmaghami et al "Global analysis of protein expression in yeast" Nature 425, 737-741 (16 October 2003) | doi:10.1038/nature02046;
+total_proteins = 4517
+stats_tmp <- data.frame(stats = "yeast_expressed_ORFs", 
+                        value = total_proteins, 
+                       comment = "Total number of yeast expressed ORFs from Ghaemmaghami et. al Nature 2003")
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+
+#cummulative proteins affected by kinase deletion
+stats_tmp <- data.frame(stats = "cummulatite_all", 
+                        value = nrow(proteins.FC.f %>% filter(p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% dplyr::select(ORF) %>% distinct()), 
+                        comment = "Cummulative changes of all proteins")
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+#cummulative enzymes proteins affected by kinase deletion
+stats_tmp <- data.frame(stats = "cummulatite_enzymes", 
+                        value = nrow(proteins.FC.f %>% filter(isiMM904, p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% dplyr::select(ORF) %>% distinct()), 
+                        comment = "Cummulative changes of enzymes")
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+#total quantified proteins in every samples
+stats_tmp <- data.frame(stats = "across_samples_all", 
+                        value = nrow(proteins.FC.f %>% dplyr::select(ORF) %>% distinct()), 
+                        comment = "Total quantified proteins in every sample")
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+#total quantified enzymes in every samples
+stats_tmp <- data.frame(stats = "across_samples_enzymes", 
+                        value = nrow(proteins.FC.f %>% filter(isiMM904) %>% dplyr::select(ORF) %>% distinct()), 
+                        comment = "Total quantified enzymes in every sample")
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+
+
+#perturbed enzymes per kinase mutant sumaries
+tmp <- t(proteins.FC.f.stats.metabolic)
+stats_tmp <- data.frame(stats = paste0("enzymes_", rownames(tmp)),
+                        value = tmp[,1],
+                        comment = paste0("Perturbed enzymes ", rownames(tmp)))
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+#perturbed all proteins per kinase mutant sumaries
+tmp <- t(proteins.FC.f.stats.all)
+stats_tmp <- data.frame(stats = paste0("all_", rownames(tmp)),
+                        value = tmp[,1],
+                        comment = paste0("Perturbed all proteins ", rownames(tmp)))
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+
+
+# adding data about all samples
+load("./R/objects/protein_annotations_trypsin._clean_.RData")
+load("./R/objects/fragments.data.RData")
+
+protein_annotations.unique <- tbl_df(protein_annotations) %>% 
+  ungroup() %>% 
+  dplyr::select(strippedSequence, SystName) %>% 
+  distinct()
+
+
+protein_annotations.all <- protein_annotations %>% 
+  dplyr::select(strippedSequence, SystName) 
+
+dataset.raw.f.good <- fragments.data %>% left_join(protein_annotations.all, by = c("EG.StrippedSequence" = "strippedSequence"))
+dataset.raw.f.good <- dataset.raw.f.good %>% rename(ProteinName = SystName)
+
+fdr_thr1 = 0.01
+
+total_samples = length(unique(dataset.raw.f.good$R.Label))
+
+selected <- unique(as.character(exp_metadata$sample_name[exp_metadata$type == "Kinase" | exp_metadata$type == "Wild Type" | exp_metadata$type == "Standard Mix"]))
+
+
+proteins.detected <- dataset.raw.f.good %>% filter(R.Label %in% selected) %>%
+  ungroup() %>%
+  select(ProteinName, R.Label, EG.Qvalue) %>%
+  gather(stats, value, -R.Label, -EG.Qvalue) %>%
+  group_by(stats, value, R.Label) %>% 
+    summarise(min.EG.Qvalue = min(EG.Qvalue, na.rm=T)) %>%
+    mutate(isiMM904 = value %in% unique(as.character(iMM904$gene)))
+
+proteins.detected.sumaries <- proteins.detected %>%
+  ungroup() %>%
+  group_by(R.Label) %>% 
+    summarize(n = sum(min.EG.Qvalue < fdr_thr1),
+              n_enzymes = sum(min.EG.Qvalue < fdr_thr1 & isiMM904)) %>%
+  ungroup() %>%
+    summarise(min_all = min(n),
+              max_all = max(n),
+              median_all = median(n),
+              mean_all = mean(n),
+              min_enzymes = min(n_enzymes),
+              max_enzymes = max(n_enzymes),
+              median_enzymes = median(n_enzymes),
+              mean_enzymes = mean(n_enzymes))
+
+
+
+#Total detected/quantified proteins in whole dataset
+stats_tmp <- data.frame(stats = "total_detected_all", 
+                        value = nrow(proteins.detected %>% ungroup() %>% filter(min.EG.Qvalue < fdr_thr1) %>%  dplyr::select(value) %>% distinct()) , 
+                        comment = paste0("total detected all proteins FDR < ", fdr_thr1))
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+#Total detected/quantified enzymes in whole dataset
+stats_tmp <- data.frame(stats = "total_detected_enzymes", 
+                        value = nrow(proteins.detected %>% ungroup() %>% filter(isiMM904, min.EG.Qvalue < fdr_thr1) %>%  dplyr::select(value) %>% distinct()) , 
+                        comment = paste0("total detected enzymes FDR < ", fdr_thr1))
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+#Total detected/quantified enzymes in whole dataset summaries
+tmp <- t(proteins.detected.sumaries)
+stats_tmp <- data.frame(stats =  rownames(tmp),
+                        value = tmp[,1],
+                        comment = paste0("Detected in whole dataset ", rownames(tmp)))
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+
+
+library("gridExtra")
+p <- tableGrob(stats_table)
+p$landscape = T
+plots.list = lappend(plots.list, p)
 
 
 ## ----- figure version 1 --------
+
 
 plot_figure_v1 <- function () {
   grid.newpage() 
@@ -1304,22 +1477,30 @@ lapply(seq_along(plots.list) ,
         tryCatch({
           p <- plots.list[[x]]
            
+          width = 210 
+          height = 297
+          
           scale = 1
           if (length(p$toScale) != 0 && p$toScale == T){
              scale = 2
           }
           
+          if (length(p$landscape) != 0 && p$landscape == T){
+            width = 297
+            height = 210
+          }
+          
           if(any(grep("^g",class(p)))) {
              ggplot2::ggsave(filename = paste(file_path, x , "pdf", sep = "."), device = NULL,
-                             plot = p, width = 210 , height = 297, units = "mm", scale = scale)
+                             plot = p, width = width , height = height, units = "mm", scale = scale)
             ggplot2::ggsave(filename = paste(file_path, x , "png", sep = "."), device = NULL, dpi = 150,
-                            plot = p, width = 210 , height = 297, units = "mm", scale = scale)  
+                            plot = p, width = width , height = height, units = "mm", scale = scale)  
           } else {
-              pdf(file = paste(file_path, x , "pdf", sep = "."), width = 210*0.039 , height = 297*0.039)
+              pdf(file = paste(file_path, x , "pdf", sep = "."), width = width*0.039 , height = height*0.039)
               par(cex = 0.8)
               print(p)
               
-              png(file = paste(file_path, x , "pdf", sep = "."), width = 210*0.039 , height = 297*0.039, res = 150)
+              png(file = paste(file_path, x , "pdf", sep = "."), width = width*0.039 , height = height*0.039, res = 150)
               par(cex = 0.8)
               print(p)
             dev.off()
