@@ -468,14 +468,16 @@ p.volcano_combined2 <- p.volcano1 + annotation_custom(grob = ggplotGrob(p.enzyme
 
 # IRT chromatogram stability ------------------
 
+
 load("./R/objects/dataset_irt_openswath._clean_.RData")
 toPlot <- dataset_irt_openswath %>% 
   dplyr::select(Sequence, filename, RT, ProteinName, m_score) %>% 
-  filter(m_score < 0.01,  ProteinName == "1/Biognosys_iRT") %>% distinct()
+  filter(m_score < 0.01, ProteinName == "1/Biognosys_iRT") %>% distinct()
 
 toPlot$sample_name <- sub(pattern = ".mzML", x = basename(toPlot$filename), replacement = "")
+selected.samples  = unique(as.character(exp_metadata$sample_name[exp_metadata$type == "Kinase" | exp_metadata$type == "Wild Type" | exp_metadata$type == "Standard Mix"]))
 
-toPlot <- toPlot %>% filter(sample_name %in% exp_metadata$sample_name)
+toPlot <- toPlot %>% filter(sample_name %in% selected.samples)
 toPlot$aquisition_date <- exp_metadata$aquisition_date[match(toPlot$sample_name, exp_metadata$sample_name)]
 toPlot$batch.exp <- exp_metadata$batch.exp[match(toPlot$sample_name, exp_metadata$sample_name)]
 toPlot$aquisition_date.str = as.Date(strptime(toPlot$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
@@ -539,6 +541,43 @@ toPlot <- ddply(toPlot, .(filename),
 
 p.irt.recalibrated <- ggplot(toPlot, aes(x=aquisition_date.str, y=iRT_recalibrated)) +
   geom_point(aes(colour=Sequence)) +
+  geom_vline(data = toPlot[grepl("mix", toPlot$filename, ignore.case = T),], 
+             aes(xintercept=as.numeric(aquisition_date.str)), linetype=1, alpha=0.75, colour="darkgrey") +
+  xlab("Acquisition date") +
+  ylab("Relative retention time") +
+  #scale_y_date() +
+  scale_colour_tableau() +
+  theme_bw() +
+  theme(legend.position="none",
+        aspect.ratio = 5/8)
+
+
+gradient_length = 2400
+toPlot.stats <- toPlot %>% group_by(Sequence) %>% summarise(median_irt = median(iRT_recalibrated),
+                                            sd_rt = sd(RT, na.rm = T),
+                                            mean_rt = mean(RT, na.rm = T),
+                                            cv_rt = sd_rt/mean_rt,
+                                            mean_irt = mean(iRT_recalibrated, na.rm = T),
+                                            sd_irt = sd(iRT_recalibrated, na.rm = T),
+                                            cv_irt = sd_irt/mean_irt,
+                                            scaled_sd = sd_rt/gradient_length)
+
+
+
+p.irt.recalibrated2 <- ggplot() +
+  geom_point(data = toPlot, aes(x=aquisition_date.str, y=iRT_recalibrated,colour=Sequence)) +
+  geom_point(data = toPlot.stats,
+               aes(x= as.Date("2014-08-15", format="%Y-%m-%d"), 
+                   y = mean_irt, colour=Sequence)) +
+  geom_errorbar(data = toPlot.stats, width=2,
+               aes(x = as.Date("2014-08-15", format="%Y-%m-%d"), 
+                   ymax = mean_irt + sd_irt,  
+                   ymin = mean_irt - sd_irt, colour=Sequence)) +
+  geom_text(data = toPlot.stats, 
+            aes(x = as.Date("2014-08-16", format="%Y-%m-%d"), 
+                y = mean_irt,
+                label = percent(scaled_sd),
+                colour=Sequence)) +
   geom_vline(data = toPlot[grepl("mix", toPlot$filename, ignore.case = T),], 
              aes(xintercept=as.numeric(aquisition_date.str)), linetype=1, alpha=0.75, colour="darkgrey") +
   xlab("Acquisition date") +
@@ -1422,7 +1461,7 @@ plot_figure_v3 <- function() {
   pushViewport(viewport(layout = grid.layout(135, 100)))
   
   grid.text("a", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
-  print(p.irt.recalibrated, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #experiment timeline with RT stability
+  print(p.irt.recalibrated2, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #experiment timeline with RT stability
   grid.text("b", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=20, col="black"))
   print(p.heatmap_sentinels , vp = viewport(layout.pos.row = 1:60, layout.pos.col = 20:100))  #sentinels
   
