@@ -627,7 +627,7 @@ transcriptome.FC.f = transcriptome.FC[transcriptome.FC$KO %in% unique(as.charact
 
 tr.pr.FC = merge(transcriptome.FC, proteins.matrix.combat.quant.FC, by=c("KO", "ORF"), suffixes=c(".tr", ".pr"))
 
-pval_thr = 0.05
+pval_thr = 0.01
 
 tr.pr.cor.ORF = tr.pr.FC %>% group_by(ORF, isMetabolic) %>% 
   summarise(cor = cor(logFC.tr, logFC.pr, method="spearman"))
@@ -647,12 +647,16 @@ tr.pr.cor.ORF.f = tr.pr.FC %>% group_by(ORF) %>% filter(p.value.tr < pval_thr) %
   summarise(cor = cor(logFC.tr, logFC.pr, method="pearson"),
             n = n())
 
-tr.pr.cor.KO.f = tr.pr.FC %>% group_by(KO) %>% filter(p.value.tr < pval_thr ) %>%
-  summarise(cor = cor(logFC.tr, logFC.pr, method="pearson"),
+tr.pr.cor.KO.f = tr.pr.FC %>% group_by(KO) %>% filter(isiMM904) %>%
+  summarise(#cor = cor(logFC.tr, logFC.pr, method="pearson"),
+            cor = cor.test(logFC.tr, logFC.pr)$estimate,
+            p.value = cor.test(logFC.tr, logFC.pr)$p.value,
             n = n())
 
-toPlot = tr.pr.cor.KO.f[tr.pr.cor.KO.f$n>=10,] %>% arrange(cor)
+
+toPlot = tr.pr.cor.KO.f[tr.pr.cor.KO.f$p.value < pval_thr,] %>% arrange(cor)
 toPlot$KO.name = orf2name$gene_name[match(toPlot$KO, orf2name$ORF)]
+#toPlot$KO.name = paste(Hmisc::capitalize(tolower(toPlot$KO.name)), "p", sep="")
 toPlot$KO.name = factor(toPlot$KO.name, levels=unique(toPlot$KO.name))
 
 
@@ -669,6 +673,23 @@ p.tr_vs_pr_cor = ggplot(toPlot, aes(x = rev(KO.name), y = cor,  size=n)) +
   theme_bw() +
   theme(legend.position = c(0.25, 0.3),
         axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+
+
+
+p.tr_vs_pr_cor.v = ggplot(toPlot, aes(x = KO.name, y = cor)) + 
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = c(-0.5,-0.25,0.25, 0.5), linetype = 3) +  
+  ylab(expression(paste("Pearson correlation between gene and protein expression log fold-changes, ", r))) +
+  xlab("Kinase mutant") +
+  ylim(-0.8,0.8) +
+  #guides(guide = guide_legend(tittle = "Deferentially expressed transcripts")) +
+  scale_size(name="Number of common transcripts\nand proteins changed per mutant") +
+  coord_flip() + 
+  theme_bw() +
+  theme(legend.position = c(0.25, 0.3),
+        axis.text.y = element_text(face = "italic"))
+        
 
 
 # --- saturation plots for supplementary ---------------
@@ -1461,7 +1482,7 @@ plot_figure_v3 <- function() {
   pushViewport(viewport(layout = grid.layout(135, 100)))
   
   grid.text("a", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
-  print(p.irt.recalibrated2, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #experiment timeline with RT stability
+  print(p.irt.recalibrated, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #experiment timeline with RT stability
   grid.text("b", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 41),gp=gpar(fontsize=20, col="black"))
   print(p.heatmap_sentinels , vp = viewport(layout.pos.row = 1:60, layout.pos.col = 20:100))  #sentinels
   
@@ -1479,7 +1500,7 @@ plot_figure_v3 <- function() {
   print(p.dist_degree, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 52:63))
   print(p.dist_between, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 64:75))
   
-  #grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 42),gp=gpar(fontsize=20, col="black"))
+  grid.text("d", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 42),gp=gpar(fontsize=20, col="black"))
   #print(p.tr_vs_pr_cor, vp = viewport(layout.pos.row = 31:60, layout.pos.col = 45:100)) #Volcano plot
   
 }
@@ -1500,6 +1521,44 @@ plot_figure_v3()
 dev.off()
 
 
+plot_figure_v4<- function() {
+  grid.newpage() 
+  pushViewport(viewport(layout = grid.layout(135, 100)))
+  
+  grid.text("a", just=c("left", "centre"), vp = viewport(layout.pos.row = 1, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  print(p.irt.recalibrated2, vp = viewport(layout.pos.row = 1:30, layout.pos.col = 1:40)) #experiment timeline with RT stability
+
+  grid.text("c", just=c("left", "centre"), vp = viewport(layout.pos.row = 31, layout.pos.col = 1),gp=gpar(fontsize=20, col="black"))
+  print(p.volcano_rect, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 1:15)) #Volcano plot
+  print(p.enzyme_perturbation, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 16:30))
+  print(p.constant_fraction, vp = viewport(layout.pos.row = 45:60, layout.pos.col = 1:40))
+  print(p.coverage , vp = viewport(layout.pos.row = 61:90, layout.pos.col = 1:27))  #pathway coverage detailed
+  print(p.pack_man, vp = viewport(layout.pos.row = 61:75, layout.pos.col = 27:40)) #pathway pie chart
+  print(p.mean_cov , vp = viewport(layout.pos.row = 76:90, layout.pos.col = 27:40)) #pathway average
+  
+  print(p.dist_changes, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 41:51))
+  grid.text("g", just=c("left", "centre"), vp = viewport(layout.pos.row = 100, layout.pos.col = 67),gp=gpar(fontsize=20, col="black"))
+  print(p.dist_degree, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 52:63))
+  print(p.dist_between, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 64:75))
+  
+  print(p.tr_vs_pr_cor.v, vp = viewport(layout.pos.row = 1:60, layout.pos.col = 41:80)) #Volcano plot
+  
+}
+
+
+file_name = "Figure1_v04_scripted.pdf"
+file_path = paste(figures_dir, file_name, sep="/")
+pdf(file_path, height=247/25.4*2, width=183/25.4*2)
+plot_figure_v4()
+dev.off()
+
+
+file_name = "Figure1_v04_scripted.png"
+file_path = paste(figures_dir, file_name, sep="/")
+
+png(file_path, height=247/25.4*2, width=183/25.4*2, units = "in", res = 150)
+plot_figure_v4() 
+dev.off()
 
 
 
