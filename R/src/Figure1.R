@@ -383,31 +383,68 @@ s.kinase_boxplot_all <- ggplot(toPlot, aes(x=label, y = logFC)) +
 
 toPlot.stats <- toPlot %>% group_by(KO, isiMM904) %>%
   summarize(diff_range = diff(range(logFC, na.rm=T)),
-            diff_IQR = IQR(logFC, na.rm=T)) %>% ungroup() %>% arrange(-diff_IQR) 
+            diff_IQR = IQR(logFC, na.rm=T),
+            n = sum(sign)) %>% ungroup() %>% arrange(-diff_IQR) 
   
 #plots.list <- lappend(plots.list, s.kinase_boxplot_all)
 toPlot.stats.res <- t.test(toPlot.stats$diff_IQR[toPlot.stats$isiMM904 == T], toPlot.stats$diff_IQR[toPlot.stats$isiMM904 == F])
 toPlot$KO <- factor(toPlot$KO, levels = unique(as.character(toPlot.stats$KO)))
 
 
-s.kinase_boxplot_metabolic <- ggplot(toPlot, aes(x = label, y = logFC, fill = isiMM904)) + 
+# s.kinase_boxplot_metabolic <- ggplot(toPlot, aes(x = label, y = logFC, fill = isiMM904)) + 
+#   stat_boxplot(geom ='errorbar', width = 0.5) +
+#   #geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
+#   geom_boxplot(outlier.shape = NA) + 
+#   #annotate("text", x = 80, y = 2, label = round(toPlot.stats.res$p.value,2)) +
+#   #geom_text(data = NA, aes(x=1, y= -2, label = round(toPlot.stats.res$p.value,2))) +
+#   scale_fill_grey(name=paste("is metabolic enzyme?",  "p-value", " = ", round(toPlot.stats.res$p.value,2), sep = ""),
+#                   breaks=c(T, F),
+#                   labels=c("TRUE", "FALSE")) +
+#   xlab("Kinase mutant") +
+#   ylab(expression(paste("Protein expression, ", log[2], "(mutant/wild-type)", sep=""))) +
+#   ylim(-4, 4) +
+#   #scale_x_discrete(labels = as.vector(my_labels)) +
+#   theme_bw() + 
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position=c(0.8, 0.2), aspect.ratio = 5/8)
+
+# s.kinase_boxplot_metabolic$toScale <- T
+# plots.list <- lappend(plots.list, s.kinase_boxplot_metabolic)
+
+toPlot.stats <- toPlot %>%
+  filter(isiMM904) %>% 
+  group_by(label) %>%
+    summarize(n = sum(sign)) %>% 
+  ungroup() %>% 
+  arrange(-n)
+toPlot.stats$label <- factor(toPlot.stats$label, levels = toPlot.stats$label)
+toPlot$label <- factor(toPlot$label, levels = toPlot.stats$label)
+View(toPlot.stats)
+s.kinase_boxplot_metabolic_only <- ggplot(toPlot %>% filter(isiMM904), aes(x = label, y = logFC)) + 
   stat_boxplot(geom ='errorbar', width = 0.5) +
   #geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
   geom_boxplot() + 
   #annotate("text", x = 80, y = 2, label = round(toPlot.stats.res$p.value,2)) +
   #geom_text(data = NA, aes(x=1, y= -2, label = round(toPlot.stats.res$p.value,2))) +
-  scale_fill_grey(name=paste("is metabolic enzyme?",  "p-value", " = ", round(toPlot.stats.res$p.value,2), sep = ""),
-                  breaks=c(T, F),
-                  labels=c("TRUE", "FALSE")) +
   xlab("Kinase mutant") +
   ylab(expression(paste("Protein expression, ", log[2], "(mutant/wild-type)", sep=""))) +
-  ylim(-4, 4) +
+  ylim(-3, 3) +
   #scale_x_discrete(labels = as.vector(my_labels)) +
   theme_bw() + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position=c(0.8, 0.2), aspect.ratio = 5/8)
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, face = "italic"), 
+        legend.position=c(0.8, 0.2), aspect.ratio = 5/8)
 
-s.kinase_boxplot_metabolic$toScale <- T
-plots.list <- lappend(plots.list, s.kinase_boxplot_metabolic)
+s.barplot_metabolic_counts <- ggplot(toPlot.stats, aes(x=label, y=n)) + 
+  geom_bar(stat="identity", width=.5) +
+  ylab("Number of perturbed metabolic enzymes") +
+  xlab("Kinase mutant") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, face = "italic"), aspect.ratio = 5/8)
+        
+s.kinase_boxplot_metabolic_only$toScale <- T
+plots.list <- lappend(plots.list, s.kinase_boxplot_metabolic_only)
+
+s.barplot_metabolic_counts$toScale <- T
+plots.list <- lappend(plots.list, s.barplot_metabolic_counts)
 
 
 
@@ -419,8 +456,8 @@ toPlot.stats <- toPlot %>% group_by(KO) %>%
 toPlot$KO <- factor(toPlot$KO, levels = unique(as.character(toPlot.stats$KO)))
 s.kinase_boxplot_all <- ggplot(toPlot, aes(x=KO, y = logFC)) + 
   stat_boxplot(geom ='errorbar', width = 0.5) +
-  #geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
-  geom_boxplot() + 
+  geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
+  geom_boxplot(outlier.shape = NA) + 
   #annotate("text", x = 80, y = 2, label = round(toPlot.stats.res$p.value,2)) +
   #geom_text(data = NA, aes(x=1, y= -2, label = round(toPlot.stats.res$p.value,2))) +
   scale_fill_grey(name=paste("is metabolic enzyme?",  "p-value", " = ", round(toPlot.stats.res$p.value,2), sep = ""),
@@ -442,6 +479,8 @@ write.table(x = toSave, file = file_path, row.names = F, quote = F, eol = "\n", 
 
 s.kinase_boxplot_all$toScale <- T
 plots.list <- lappend(plots.list, s.kinase_boxplot_all)
+
+
 
 ### -- perturbation histogram -------------
 
@@ -849,11 +888,16 @@ d_left <- left_data %>% dist %>% hclust %>% as.dendrogram
 d_right <- right_data %>% dist %>% hclust %>% as.dendrogram
 d_left_right <- dendlist(proteome = d_left, metabolome = d_right)
 
-plot(d_left_right, main_left = names(d_left_right)[1], 
+file_name = paste("coephenetic_correlation", fun_name, "pdf", sep = ".")
+file_path = paste(figures_dir, file_name, sep="/")
+
+pdf(file = file_path, width = 210*0.039 , height = 297*0.039)
+  plot(d_left_right, main_left = names(d_left_right)[1], 
      main_right = names(d_left_right)[2], 
      sub = paste("Cophenetic correlation =", format(cor_cophenetic(d_left_right), digits = 2, scientific = T)), 
      cex_main_left = 0.85, cex_main_right = 0.85,
      cex_sub = 0.75)
+dev.off()
 
 p = recordPlot()
 plots.list = lappend(plots.list, p)
@@ -871,8 +915,6 @@ load("./R/objects/iMM904._load_.RData")
 
 protein.matrix = proteins.matrix.combat.quant
 proteins.FC = sentinels.proteins.matrix.quant.combat.FC
-
-
 
 
 proteins.FC$gene_name <- orf2name$gene_name[match(proteins.FC$ORF, orf2name$ORF)]
@@ -984,6 +1026,13 @@ file_path = paste(figures_dir, file_name, sep="/")
 
 save_plot(plot = p.heatmap_sentinels_slide, filename = file_path, base_height = 8.27*1.5, base_width = 11.69*1.5 )
 
+### ---- sentinel coverage ---- ####
+
+load("./R/objects/sentinelsSRM._clean_.RData")
+
+sum(unique(sentinelsSRM$ORF) %in% rownames(sentinels.proteins.matrix.quant.combat))/length(unique(sentinelsSRM$ORF))
+
+#sum((sentinels.table %>% filter(Sentinel.Grade == "A") %>% select(ORF.ID) %>% distinct())$ORF.ID %in% rownames(proteins.matrix.combat.quant))
 
 
 # --- constant fraction & saturation -----
