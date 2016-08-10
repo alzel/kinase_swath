@@ -2136,7 +2136,79 @@ p.aic_models = ggplot() +
 file_name = paste("supplementary_models.aic", fun_name, "pdf", sep = ".")
 file_path = paste(figures_dir, file_name, sep="/")
 
-ggsave(filename = file_path, plot = p.aic_models,  width = 210*2.1 , height = 297*2.1, units = "mm",)
+ggsave(filename = file_path, plot = p.aic_models,  width = 210*2.1 , height = 297*2.1, units = "mm")
+
+
+## -- dataset statistics ---- 
+
+load("./R/objects/dataAA.create_datasets.RData")
+load("./R/objects/dataTCA.create_datasets.RData")
+load("./R/objects/dataPPP_AA.create_datasets.RData")
+
+
+dataAA.long <- melt(dataAA$metabolites, varnames = "rownames")
+names(dataAA.long) <- c("sample_name", "metabolite", "value")
+dataAA.long$genotype <- as.character(exp_metadata$ORF[match(dataAA.long$sample_name, exp_metadata$sample_name)])
+dataAA.long$dataset = "AA"
+
+dataTCA.long <- melt(dataTCA$metabolites, varnames = "rownames")
+names(dataTCA.long) <- c("sample_name", "metabolite", "value")
+dataTCA.long$genotype <- as.character(exp_metadata$ORF[match(dataTCA.long$sample_name, exp_metadata$sample_name)])
+dataTCA.long$dataset = "TCA"
+
+dataPPP_AA.long <- melt(dataPPP_AA$metabolites, varnames = "rownames")
+names(dataPPP_AA.long) <- c("sample_name", "metabolite", "value")
+dataPPP_AA.long$genotype <- dataPPP_AA.long$sample_name
+dataPPP_AA.long$dataset = "PPP_AA"
+
+
+metabolites.long <- do.call(rbind.data.frame, list(dataTCA.long, dataAA.long, dataPPP_AA.long))
+
+metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
+metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
+
+metabolites.long$metabolite_name <- toupper(metabolite2iMM904$model_name[match(metabolites.long$metabolite, metabolite2iMM904$id)])
+
+toPlot <- metabolites.long %>% 
+  filter(metabolite %in% metabolite.order$metabolite) %>% 
+  group_by(genotype, metabolite_name, dataset) %>% summarise(n = sum(!is.na(value))) %>% 
+  dcast(formula = "genotype~metabolite_name+dataset", value.var = "n") %>% 
+  melt(id.vars = "genotype")
+
+toPlot$value[toPlot$value == 0] = NA
+toPlot$value[toPlot$value == 4] = 3
+
+toPlot <- toPlot %>% group_by(genotype) %>% mutate(rowsum = sum(!is.na(value)))
+toPlot <- toPlot %>% group_by(variable) %>% mutate(colsum = sum(!is.na(value)))
+
+toPlot$genotype_name <- as.character(exp_metadata$gene[match(toPlot$genotype, exp_metadata$ORF)])
+toPlot$genotype_name <- factor(toPlot$genotype_name, levels = unique(toPlot$genotype_name[order(toPlot$rowsum)]))
+
+toPlot$genotype <- factor(toPlot$genotype, levels = unique(toPlot$genotype[order(toPlot$rowsum)]))
+toPlot$variable <- factor(toPlot$variable, levels = unique(toPlot$variable[order(-toPlot$colsum)]))
+
+toPlot <- toPlot %>% separate(variable, c("metabolite_name","dataset"), sep = "_", extra = "merge", remove = F)
+toPlot$metabolite_name <- factor(toPlot$metabolite_name, levels = unique(toPlot$metabolite_name[order(-toPlot$colsum)]))
+
+toPlot.stats <- toPlot %>% 
+  group_by(variable) %>% 
+  summarise(n = sum(value, na.rm = T))
+
+p <- ggplot() +
+  geom_point(data = toPlot, aes(x = variable, y = genotype_name, shape = factor(value), colour = dataset)) +
+  geom_text(data = toPlot.stats, aes(y = 1, x = variable, label = n)) +
+  xlab("Measured metabolite") +
+  ylab("Genotype") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        aspect.ratio = 1, legend.position = c(0.75,0.25)) +
+  labs(shape = "Number of samples", colour = "Protocol")
+p <- cowplot::ggdraw(cowplot::switch_axis_position(p , axis = 'x'))
+
+file_name = paste("supplementary_data_description", fun_name, "pdf", sep = ".")
+file_path = paste(figures_dir, file_name, sep="/")
+
+ggsave(filename = file_path, plot = p,  width = 210*1.5 , height = 297*1.5, units = "mm")
 
 
 
