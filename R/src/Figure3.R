@@ -45,6 +45,7 @@ matches = stringr::str_match_all(pattern=pattern.p, filesToProcess)
 
 read_models.aic = function(x) {
   z <<- x
+  #x =  matches[[1]]
   file_name = paste(input_path,x[[1]], sep="/") 
   my_models = get(load(file_name))
   
@@ -56,6 +57,7 @@ read_models.aic = function(x) {
   table$degree  = factor(x[[4]])
   table$ismetIncluded  = factor(x[[5]])
   table$file =  factor(x[[1]])
+  table$total_predictors  = dim(my_models$input_data)[2]-1
   return(table)
 }
 
@@ -87,6 +89,8 @@ models.filtered = all_final_models.aic %>% filter(type == "after",
                                                             type = type[which.max(adj.r.squared)],
                                                             datafile = datafile[which.max(adj.r.squared)])
 
+
+
 toPlot = models.filtered %>% ungroup() %>% arrange(dataset, adj.r.squared)
 
 toPlot$metabolite = factor(toPlot$metabolite, levels = unique(toPlot$metabolite))
@@ -95,6 +99,7 @@ p = ggplot(toPlot, aes(x = metabolite, y = adj.r.squared)) +
   geom_linerange(data = toPlot , aes(x=metabolite,ymin=0, ymax=adj.r.squared))+
   facet_wrap(ismetIncluded~dataset+degree, scales = "free") + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
 
 
 
@@ -208,6 +213,7 @@ read_models.aic.predict = function(x) {
   table$degree  = factor(x[[4]])
   table$ismetIncluded  = factor(x[[5]])
   table$file =  factor(x[[1]])
+  table$total_predictors  = dim(my_models$input_data)[2]-1
   return(table)
 }
 
@@ -234,10 +240,8 @@ all_linear_models <- all_final_models.models %>%
       group_by(metabolite, ismetIncluded, degree) %>% 
         mutate(the_super_best = adj.r.squared == max(adj.r.squared)) #the best model
 
-
 metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
 metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
-
 
 toPlot = all_linear_models %>% ungroup() %>% 
   filter(metabolite %in% metabolite.order$metabolite, 
@@ -250,7 +254,9 @@ toPlot = all_linear_models %>% ungroup() %>%
             model = unique(as.character(model)),
             type = unique(as.character(type)),
             datafile = unique(as.character(datafile)),
-            dataset = unique(as.character(dataset)))
+            dataset = unique(as.character(dataset)),
+            total_predictors = unique(total_predictors))
+
 
 toPlot = droplevels(toPlot)
 toPlot$metabolite = factor(toPlot$metabolite, levels=as.character(metabolite.order$metabolite))
@@ -261,6 +267,8 @@ toPlot$pathway = metabolite.order$pathway[match(toPlot$metabolite, metabolite.or
 toPlot$pathway = factor(toPlot$pathway, levels = as.character(metabolite.order$pathway))
 
 library(ggthemes)
+
+
 p.all_met = ggplot(toPlot, aes(x = met_name, color=pathway)) +
   #geom_point(data=toPlot, aes( y = adj.r.squared), colour = "black", size=2) +
   #geom_point(data=toPlot, aes( y = median.cv.r2), colour="black", shape=17, size=5) +
@@ -271,6 +279,13 @@ p.all_met = ggplot(toPlot, aes(x = met_name, color=pathway)) +
   panel_border() +
   theme(legend.justification=c(1,0), legend.position=c(-0.1,0)) +
   ylab("Explained variance of metabolite concentrations\nusing proteome data, adj. R2")
+
+message(paste("Total number of models", format(sum(2^(toPlot %>% filter(metabolite != "ATP"))$total_predictors))))
+
+# total theoretical number of models
+sum(sapply((toPlot %>% filter(metabolite != "ATP"))$total_predictors, function(x)
+  sum(choose(x, 1:x))))
+
 
 
 # plotting graph -----------------
@@ -599,84 +614,84 @@ p.gln1 <- ggplot(toPlot, aes(x =x , y = y) ) +
   theme(aspect.ratio = 1)
 plots.list <- lappend(plots.list, p.gln1)
 
-# --- example small graph ---- 
-
-measured.proteins = row.names(proteins.matrix.combat.quant)
-yeast.model = iMM904
-yeast.model = yeast.model[grep("t", yeast.model$reaction, invert=T),] #removing all tranporters
-yeast.model = yeast.model[yeast.model$gene %in% measured.proteins, ]
-
-yeast.model = yeast.model %>% group_by(metabolite, gene) %>% dplyr::mutate( from = ifelse(side == "substrate", as.character(metabolite), as.character(gene)),
-                                                                            to   = ifelse(side == "substrate", as.character(gene), as.character(metabolite)),
-                                                                            from.ec = ifelse(side == "substrate", as.character(metabolite), as.character(ec_number)),
-                                                                            to.ec   = ifelse(side == "substrate", as.character(ec_number), as.character(metabolite)))
-
-example_metabolites = c("glutamine", "glutamate")
-
-
-
-for (i in 1:length(example_metabolites)) {
-  
-  met = example_metabolites[i]
-  
-  current_nodes = as.character(metabolite2iMM904$model_name[metabolite2iMM904$id %in% met])
-  edgelist = data.frame(yeast.model %>% ungroup() %>% filter(metabolite %in% current_nodes))
-  tmp.edge = data.frame(edgelist)
-  
-  model.edges = tmp.edge
-  selected.model = all_linear_models %>% ungroup() %>% filter(degree == 1, ismetIncluded == 0, the_super_best == T, metabolite %in% met)
-  selected.model$metabolite_name = as.character(metabolite2iMM904$model_name[match(selected.model$metabolite, metabolite2iMM904$id)])
-  
-  selected.model <- selected.model %>% dplyr::select(metabolite_name, X1, weight)
-  names(selected.model) = c("metabolite_name", "variables", "weights")
-  
-  model.edges = merge(model.edges, selected.model, all.x = T,
-                      by.x = c("metabolite","gene"),
-                      by.y = c("metabolite_name", "variables"))
-  
-  names(model.edges)[length(names(model.edges))] = "weights"
-  
-  model.edges = model.edges %>% arrange(gene, ec_number) %>% 
-    group_by(metabolite, gene) %>% 
-    mutate(isCorrect = ifelse(side == "substrate" && weights < 0 && directionality == "->", T, 
-                              ifelse(side == "product" && weights > 0 && directionality == "->", T, 
-                                     ifelse(directionality == "<->", T, F))))
-  
-  
-  model.edges = model.edges %>% arrange(gene, ec_number) 
-  model.edges$gene_name = orf2name$gene_name[match(model.edges$gene, orf2name$ORF)]
-  
-  
-  graph.edges = unique(model.edges[,c("from", "to", "reaction", "ec_number", "gene", "directionality", "weights", "isCorrect", "gene_name")])
-  
-  graph.edges$abs_weight= abs(graph.edges$weights)
-  graph.edges$abs_weight[graph.edges$abs_weight >= 1] = 1
-  graph.edges$effect = ifelse(graph.edges$weights > 0, 1, 0)
-  graph.edges$effect.label = cut(abs(graph.edges$abs_weight), breaks=3, labels=c("low", "medium", "strong"))
-  
-  
-  B <- graph.data.frame(graph.edges, directed=T)
-  #B = as.directed(B, mode = "arbitrary")
-  
-  V(B)$type <- V(B)$name %in% unique(yeast.model$metabolite)
-  
-  name_idx = na.omit(match(V(B)$name, orf2name$ORF))
-  B_idx = which(!is.na(match(V(B)$name, orf2name$ORF)))
-  V(B)$label = 1:length(V(B)$name)
-  V(B)$label[B_idx] = as.character(orf2name$gene_name[name_idx])
-  
-  name_idx = na.omit(match(V(B)$name, metabolite2iMM904$model_name))
-  B_idx = which(!is.na(match(V(B)$name, metabolite2iMM904$model_name)))
-  V(B)$label[B_idx] = as.character(metabolite2iMM904$official_name[name_idx])
-  
-  V(B)$model = ifelse(V(B)$name %in% as.character(selected.model$variables), 1, 0)
-  
-  name.tmp = paste(met, collapse = "_")
-  file_name = paste(name.tmp, fun_name, "graphml", sep=".")
-  file_path = paste(output_dir, file_name, sep="/")
-
-  write.graph(B, file=file_path, format="graphml")
-}
+# # --- example small graph ---- 
+# 
+# measured.proteins = row.names(proteins.matrix.combat.quant)
+# yeast.model = iMM904
+# yeast.model = yeast.model[grep("t", yeast.model$reaction, invert=T),] #removing all tranporters
+# yeast.model = yeast.model[yeast.model$gene %in% measured.proteins, ]
+# 
+# yeast.model = yeast.model %>% group_by(metabolite, gene) %>% dplyr::mutate( from = ifelse(side == "substrate", as.character(metabolite), as.character(gene)),
+#                                                                             to   = ifelse(side == "substrate", as.character(gene), as.character(metabolite)),
+#                                                                             from.ec = ifelse(side == "substrate", as.character(metabolite), as.character(ec_number)),
+#                                                                             to.ec   = ifelse(side == "substrate", as.character(ec_number), as.character(metabolite)))
+# 
+# example_metabolites = c("glutamine", "glutamate")
+# 
+# 
+# 
+# for (i in 1:length(example_metabolites)) {
+#   
+#   met = example_metabolites[i]
+#   
+#   current_nodes = as.character(metabolite2iMM904$model_name[metabolite2iMM904$id %in% met])
+#   edgelist = data.frame(yeast.model %>% ungroup() %>% filter(metabolite %in% current_nodes))
+#   tmp.edge = data.frame(edgelist)
+#   
+#   model.edges = tmp.edge
+#   selected.model = all_linear_models %>% ungroup() %>% filter(degree == 1, ismetIncluded == 0, the_super_best == T, metabolite %in% met)
+#   selected.model$metabolite_name = as.character(metabolite2iMM904$model_name[match(selected.model$metabolite, metabolite2iMM904$id)])
+#   
+#   selected.model <- selected.model %>% dplyr::select(metabolite_name, X1, weight)
+#   names(selected.model) = c("metabolite_name", "variables", "weights")
+#   
+#   model.edges = merge(model.edges, selected.model, all.x = T,
+#                       by.x = c("metabolite","gene"),
+#                       by.y = c("metabolite_name", "variables"))
+#   
+#   names(model.edges)[length(names(model.edges))] = "weights"
+#   
+#   model.edges = model.edges %>% arrange(gene, ec_number) %>% 
+#     group_by(metabolite, gene) %>% 
+#     mutate(isCorrect = ifelse(side == "substrate" && weights < 0 && directionality == "->", T, 
+#                               ifelse(side == "product" && weights > 0 && directionality == "->", T, 
+#                                      ifelse(directionality == "<->", T, F))))
+#   
+#   
+#   model.edges = model.edges %>% arrange(gene, ec_number) 
+#   model.edges$gene_name = orf2name$gene_name[match(model.edges$gene, orf2name$ORF)]
+#   
+#   
+#   graph.edges = unique(model.edges[,c("from", "to", "reaction", "ec_number", "gene", "directionality", "weights", "isCorrect", "gene_name")])
+#   
+#   graph.edges$abs_weight= abs(graph.edges$weights)
+#   graph.edges$abs_weight[graph.edges$abs_weight >= 1] = 1
+#   graph.edges$effect = ifelse(graph.edges$weights > 0, 1, 0)
+#   graph.edges$effect.label = cut(abs(graph.edges$abs_weight), breaks=3, labels=c("low", "medium", "strong"))
+#   
+#   
+#   B <- graph.data.frame(graph.edges, directed=T)
+#   #B = as.directed(B, mode = "arbitrary")
+#   
+#   V(B)$type <- V(B)$name %in% unique(yeast.model$metabolite)
+#   
+#   name_idx = na.omit(match(V(B)$name, orf2name$ORF))
+#   B_idx = which(!is.na(match(V(B)$name, orf2name$ORF)))
+#   V(B)$label = 1:length(V(B)$name)
+#   V(B)$label[B_idx] = as.character(orf2name$gene_name[name_idx])
+#   
+#   name_idx = na.omit(match(V(B)$name, metabolite2iMM904$model_name))
+#   B_idx = which(!is.na(match(V(B)$name, metabolite2iMM904$model_name)))
+#   V(B)$label[B_idx] = as.character(metabolite2iMM904$official_name[name_idx])
+#   
+#   V(B)$model = ifelse(V(B)$name %in% as.character(selected.model$variables), 1, 0)
+#   
+#   name.tmp = paste(met, collapse = "_")
+#   file_name = paste(name.tmp, fun_name, "graphml", sep=".")
+#   file_path = paste(output_dir, file_name, sep="/")
+# 
+#   write.graph(B, file=file_path, format="graphml")
+# }
 
 # -- Energy metabolite example ---------------
 
@@ -2020,6 +2035,108 @@ p.responsivness2 <- ggplot(data = toPlot , aes(y = delta_S/delta_Vratio, x = log
   theme_bw() +
   theme(aspect.ratio = 1, legend.position = c(0.7, 0.5))
 plots.list <- lappend(plots.list, p.responsivness2)
+
+
+## -- MLR models predictors plots ----
+
+
+read_models.models = function(x) {
+  z <<- x
+  file_name = paste(input_path,x[[1]], sep="/") 
+  my_models = get(load(file_name))
+  
+  models = my_models$models
+  
+  tmp = data.frame()
+  for (i in 1:length(models)) {
+    coefficients1 = models[[i]]$before$coefficients[-1]
+    tmp = rbind(tmp, data.frame(model = i, type = "before", coefficients = coefficients1, variables =  names(coefficients1)))
+    tmp = rbind(tmp,data.frame(model = i, type = "before", coefficients = NA, variables = "stats"))
+    
+    coefficients2 = models[[i]]$after$coefficients[-1]
+    tmp = rbind(tmp, data.frame(model = i, type = "after", coefficients = coefficients2, variables =  names(coefficients2)))
+    tmp = rbind(tmp,data.frame(model = i, type = "after", coefficients = NA, variables = "stats"))
+    
+  }
+  
+  table = tmp
+  
+  table$dataset = factor(x[[2]])
+  table$species  = factor(x[[3]])
+  table$isImputed = ifelse(length(grep(pattern="imputed", x=x[[3]])) == 0, 0, 1)
+  table$degree  = factor(x[[4]])
+  table$ismetIncluded  = factor(x[[5]])
+  table$file =  factor(x[[1]])
+  table = merge(table,  my_models$summaries, by = c("model", "type"))
+  
+  annotations = my_models$summaries %>% dplyr::select(model, type, adj.r.squared)
+  colnames(annotations)[3] = "stats_text"
+  
+  annotations$variables  = "stats"
+  table = merge(table, annotations, by = c("model", "type", "variables"), all=T)
+  return(table)
+}
+
+file.list = lapply(matches, FUN=read_models.models)
+all_final_models.models = do.call(rbind.data.frame, file.list)
+all_final_models.models$metabolite = all_final_models.models$species
+all_final_models.models$metabolite = sub(x=all_final_models.models$metabolite, pattern="log.quant.(.*)", replacement="\\1")
+all_final_models.models$metabolite = sub(x=all_final_models.models$metabolite, pattern="log.(.*)", replacement="\\1")
+
+all_final_models.models$normalization = "bc"
+all_final_models.models$normalization[grep(pattern="log", x=all_final_models.models$species)] = "log"
+all_final_models.models$normalization[grep(pattern="log.quant", x=all_final_models.models$species)] = "log.quant"
+all_final_models.models$normalization = factor(all_final_models.models$normalization)
+
+auto_thr = 0.05
+auto_thr.bonferonni = auto_thr/nrow(all_final_models.models)
+all_final_models.models$isAutocorrelation.bonferoni = ifelse(all_final_models.models$bg.p.value < auto_thr.bonferonni, 1, 0)
+all_final_models.models$isAutocorrelation = ifelse(all_final_models.models$bg.p.value < auto_thr, 1, 0)
+
+
+all_final_models.models$mode = factor(ifelse(all_final_models.models$coefficients > 0,1,0))
+
+#selecting best representative model based on adj R2 out of all normalization methods
+#all_final_models.models = all_final_models.models %>% filter(type == "after", ismetIncluded == 0, degree == 1,
+all_final_models.models = all_final_models.models %>% filter(type == "after",  
+                                                             isImputed == 0 , isAutocorrelation.bonferoni == 0) %>%
+  group_by(dataset, model, metabolite, ismetIncluded, degree) %>% 
+  mutate(the_best = adj.r.squared == max(adj.r.squared)) %>% # best among normalization methods
+  group_by(dataset, metabolite, ismetIncluded, degree) %>% 
+  mutate(the_super_best = adj.r.squared == max(adj.r.squared)) #the best model
+
+all_final_models.models$varname = orf2name$gene_name[match(all_final_models.models$variables, orf2name$ORF)]
+all_final_models.models$varname[which(is.na(all_final_models.models$varname))] = as.character(all_final_models.models$variables[is.na(all_final_models.models$varname)])
+tmp.lev = unique(sort(all_final_models.models$varname))
+all_final_models.models$varname = factor(all_final_models.models$varname, levels=c("stats", tmp.lev[tmp.lev != "stats"]))
+
+all_final_models.models$metabolite.label <- metabolite2iMM904$official_name[match(all_final_models.models$metabolite, metabolite2iMM904$id)]
+
+
+toPlot  = dplyr::filter(all_final_models.models, type == "after", 
+                        metabolite %in% metabolite.order$metabolite, 
+                        adj.r.squared > 0.25, isImputed == 0 , isAutocorrelation.bonferoni == 0, the_best == T, degree == 1)
+p.aic_models = ggplot() +
+  geom_text(data=toPlot, aes(x=factor(model), y = varname, label=round(stats_text,2))) +
+  geom_point(data=toPlot, aes(x=factor(model), y = varname, 
+                              size=abs(coefficients), color = mode)) +
+  facet_wrap(dataset~metabolite.label, scales="free") +
+  xlab("Candidate model") + 
+  ylab("Enzyme predictors") +
+  theme_bw() + 
+  theme(aspect.ratio = 1) +
+  scale_size_continuous(name="Effect size",
+                        breaks=c(0.25, 0.5, 1),
+                        labels = c("low", "medium", "strong")) +
+  scale_color_discrete(name="Predictor's effect",
+                       breaks = c(0, 1),
+                       labels = c("negative", "positive") )
+
+
+file_name = paste("supplementary_models.aic", fun_name, "pdf", sep = ".")
+file_path = paste(figures_dir, file_name, sep="/")
+
+ggsave(filename = file_path, plot = p.aic_models,  width = 210*2.1 , height = 297*2.1, units = "mm",)
 
 
 
