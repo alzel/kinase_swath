@@ -1,7 +1,6 @@
 rm(list=ls())
-
-source("./R/functions.R")
 source("./R/boot.R")
+source("./R/functions.R")
 
 plots.list = list()
 fun_name = "get_proteins"
@@ -12,7 +11,8 @@ load("./R/objects/peptides.matrix.RData")
 load("./R/objects/peptides.matrix.quant.combat.RData")
 load("./R/objects/peptides.matrix.combat.quant.RData")
 load("./R/objects/peptides.cor.stats.top.RData")
-
+load("./R/objects/sentinels.table._clean_.RData")
+load("./R/objects/peptides.matrix.sva.0.5.1.sva_batch_effects.RData")
 
 
 load("./R/objects/protein_annotations_trypsin._clean_.RData")
@@ -125,7 +125,7 @@ makeProteins = function(...) {
   
 }
 
-
+makeProteins(peptides.matrix.sva.0.5.1)
 makeProteins(peptides.matrix)
 makeProteins(peptides.matrix.combat)
 makeProteins(peptides.matrix.combat.quant)
