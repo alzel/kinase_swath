@@ -4,12 +4,14 @@ set.seed(123)
 source("./R/boot.R")
 source("./R/functions.R")
 
+
 fun_name = "sva_batch_effects"
 
 load("./R/objects/exp_metadata._clean_.RData")
 load("./R/objects/peptides.matrix.RData")
 
 pheno = droplevels(exp_metadata[match(colnames(peptides.matrix), exp_metadata$sample_name),])
+plots.list = list()
 
 
 mod = model.matrix(~1, data=pheno)
@@ -25,15 +27,17 @@ n.sv  <- 1
 # estimation of the correction factors.
 # This might prevent most of the biological signal from being regressed out.
 
-edata = as.matrix(t(scale(t(peptides.matrix))))
-varsEdata <- rowVars(edata)
+edata = as.matrix(peptides.matrix)
+
+varsEdata <- rowSds(edata)/rowMeans(edata)
+
 selectEdata <- order(varsEdata, decreasing = TRUE)[seq(n_genes, length(varsEdata))]
 controls <- as.numeric(rownames(edata) %in% rownames(edata)[selectEdata])
 # as we do not include experimental conditions,  we use the supervised method
 svobj <- sva(peptides.matrix, mod = mod, mod0 = mod0, n.sv = n.sv,
              method = "supervised", controls = controls)
 newV = NULL ## neccessary due to bug in the sva pacakge
-fsvaobj <- fsva(peptides.matrix, mod, svobj, newdat = NULL)
+fsvaobj <- fsva(edata, mod, svobj, newdat = NULL)
 
 # get corrected data
 edata_Adj <- fsvaobj$db
@@ -42,10 +46,10 @@ object_name = paste("peptides.matrix.sva", fraction,n.sv, sep = ".")
 assign(object_name, edata_Adj)
 file_name = paste(object_name, fun_name, "RData", sep = ".")
 file_path = paste(output_dir, file_name, sep="/")
-save(peptides.matrix.sva.0.5.1, file = file_path)
+save(list = eval(object_name), file = file_path)
 
 before = peptides.matrix
-after  = peptides.matrix.sva.0.5.1
+after  = get(eval(object_name))
 
 
 pca = prcomp(t(before), scale.=T)
@@ -86,6 +90,7 @@ p = ggplot(scores, aes(x=PC1, y=PC2)) +
   theme(aspect.ratio = 1, 
         axis.text = element_text(size = rel(1.5)))
 
+plots.list <- lappend(plots.list, p)
 
 before.long = tbl_df(melt(before, id.vars="rownames"))
 names(before.long) = c("EG.StrippedSequence", "R.Label", "signal")
@@ -121,5 +126,34 @@ p = ggplot(toPlot, aes(x=aquisition_date.str, y=exp(signal), col=batch)) +
   geom_point(data=toPlot.wt, aes(x=aquisition_date.str, y=exp(signal)),col="blue") + #WT   
   scale_x_date(breaks = date_breaks("1 week"), minor_breaks = date_breaks("1 day"), labels=date_format("%m-%d"))+
   facet_grid(EG.StrippedSequence~category, scales="free")
+plots.list <- lappend(plots.list, p)
 
 
+
+file_name = paste("supplementary", fun_name, sep = ".")
+file_path = paste(figures_dir, file_name, sep="/")
+
+lapply(seq_along(plots.list) , 
+       function(x) {
+         
+         tryCatch({
+           p <- plots.list[[x]]
+           scale = 1
+           if (length(p$toScale) != 0 && p$toScale == T  ){
+             scale = 2
+           }
+           ggplot2::ggsave(filename = paste(file_path, x , "pdf", sep = "."), device = NULL,
+                           plot = p, width = 210 , height = 297, units = "mm", scale = scale)
+           
+           ggplot2::ggsave(filename = paste(file_path, x , "png", sep = "."), device = NULL,
+                           plot = p, width = 210 , height = 297, dpi = 150, units = "mm", scale = scale)
+           
+         }, error = function(e) {
+           message(paste("Plot", "x", "sucks!" ))
+           return(NULL)
+         }, finally = {
+           message(paste("processed plot", x))
+         })
+         
+         
+       })
