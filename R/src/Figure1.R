@@ -9,7 +9,6 @@ library(scales)
 #library(cowplot)
 
 load("./R/objects/exp_metadata._clean_.RData")
-
 load("./R/objects/gene.annotations._load_.RData")
 
 orf2name = unique(data.frame(ORF = gene.annotations$V4,
@@ -33,13 +32,6 @@ KEGG.pathways.stats <- KEGG.pathways %>%
             EC.active.inData  = length(unique(EC.number[is.Coupled == 1 & is.inData == 1 ]))/length(unique(EC.number[is.Coupled == 1])))
 
 
-# KEGG.pathways.stats2 <- KEGG.pathways %>% 
-#   filter(is.Coupled == 1) %>%
-#   group_by(pathway) %>% 
-#     summarize(EC.active.inData  = length(unique(EC.number[is.Coupled == 1 & is.inData == 1 ]))/length(unique(EC.number[is.Coupled == 1])))
-
-
-# KEGG.pathways.stats <- merge(KEGG.pathways.stats, KEGG.pathways.stats2, all = T)
 KEGG.pathways.stats = merge(KEGG.pathways.stats, kegg_categories, by="pathway")
 
 selected = c("Amino acid metabolism",                       
@@ -199,11 +191,11 @@ write.table(x = toSave, file = file_path, row.names = F, quote = F, eol = "\n", 
 
 ## -- CVs of mix samples -----
 
-load("./R/objects/proteins.matrix.combat.quant.RData")
-load("./R/objects/fragments.matrix.quant.combat.RData")
-load("./R/objects/peptides.matrix.quant.combat.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.RData")
+#load("./R/objects/fragments.matrix.quant.combat.RData")
+#load("./R/objects/peptides.matrix.quant.combat.RData")
 
-data.raw = proteins.matrix.combat.quant
+data.raw = proteins.matrix.sva.0.5.1
 data.raw.f = data.raw[,grepl(pattern = "mix", ignore.case = T, x = colnames(data.raw) )]
 data.raw.f.df = tbl_df(data.frame(ORF = row.names(data.raw.f), as.data.frame(data.raw.f)))
 
@@ -211,25 +203,26 @@ data.raw.f.proteins = data.raw.f.df %>%
   gather(sample, Tsignal, -ORF)
 data.raw.f.proteins$type = "proteins"
 
-data.raw = peptides.matrix.quant.combat
-data.raw.f = data.raw[,grepl(pattern = "mix", ignore.case = T, x = colnames(data.raw) )]
-data.raw.f.df = tbl_df(data.frame(ORF = row.names(data.raw.f), as.data.frame(data.raw.f)))
-
-data.raw.f.peptides = data.raw.f.df %>%
-  gather(sample, Tsignal, -ORF)
-data.raw.f.peptides$type = "peptides"
-
-data.raw = fragments.matrix.quant.combat
-data.raw.f = data.raw[,grepl(pattern = "mix", ignore.case = T, x = colnames(data.raw) )]
-data.raw.f.df = tbl_df(data.frame(ORF = row.names(data.raw.f), as.data.frame(data.raw.f)))
-
-data.raw.f.fragments = data.raw.f.df %>%
-  gather(sample, Tsignal, -ORF)
-data.raw.f.fragments$type = "fragments"
-
-data.all = rbind.data.frame(data.raw.f.fragments, data.raw.f.peptides, data.raw.f.proteins)
-data.all$signal = exp(data.all$Tsignal)
-data.all$type = factor(data.all$type, levels = c("fragments", "peptides", "proteins"))
+# data.raw = peptides.matrix.quant.combat
+# data.raw.f = data.raw[,grepl(pattern = "mix", ignore.case = T, x = colnames(data.raw) )]
+# data.raw.f.df = tbl_df(data.frame(ORF = row.names(data.raw.f), as.data.frame(data.raw.f)))
+# 
+# data.raw.f.peptides = data.raw.f.df %>%
+#   gather(sample, Tsignal, -ORF)
+# data.raw.f.peptides$type = "peptides"
+# 
+# data.raw = fragments.matrix.quant.combat
+# data.raw.f = data.raw[,grepl(pattern = "mix", ignore.case = T, x = colnames(data.raw) )]
+# data.raw.f.df = tbl_df(data.frame(ORF = row.names(data.raw.f), as.data.frame(data.raw.f)))
+# 
+# data.raw.f.fragments = data.raw.f.df %>%
+#   gather(sample, Tsignal, -ORF)
+# data.raw.f.fragments$type = "fragments"
+# 
+ #data.all = rbind.data.frame(data.raw.f.fragments, data.raw.f.peptides, data.raw.f.proteins)
+ data.all = rbind.data.frame(data.raw.f.proteins)
+ data.all$signal = exp(data.all$Tsignal)
+ data.all$type = factor(data.all$type, levels = c("fragments", "peptides", "proteins"))
 
 data.all.summary = data.all %>% group_by(ORF, type) %>% summarise(CV = sd(signal, na.rm=T)/mean(signal, na.rm=T))
 
@@ -242,7 +235,7 @@ p = ggplot(data = toPlot, aes(x=type, y=CV*100)) +
   scale_y_log10(limits=c(5,100), breaks=c(5, 10, 15,20, 50,  100)) +
   annotation_logticks(sides="l") +
   ylab("Signal variation for the duration of experiment, CV")
- 
+p 
 
 toPlot <- data.all.summary %>% filter(type == "proteins")
 p.CV = ggplot(data = toPlot, aes(x=CV)) + 
@@ -258,12 +251,15 @@ p.CV = ggplot(data = toPlot, aes(x=CV)) +
 plots.list <- lappend(plots.list, p.CV)
 
 ## -- Volcano plots ---- 
-load("./R/objects/proteins.matrix.combat.quant.FC.RData")
-load("./R/objects/proteins.matrix.combat.quant.RData")
+# load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+# load("./R/objects/proteins.matrix.combat.quant.RData")
+
+load("./R/objects/proteins.matrix.sva.0.5.1.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.FC.RData")
 load("./R/objects/iMM904._load_.RData")
 
-protein.matrix = proteins.matrix.combat.quant
-proteins.FC = proteins.matrix.combat.quant.FC
+protein.matrix = proteins.matrix.sva.0.5.1
+proteins.FC = proteins.matrix.sva.0.5.1.FC
 
 reference = unique(as.character(proteins.FC$reference))
 
@@ -348,8 +344,8 @@ p.volcano_inset = ggplot(toPlot, aes(x=logFC)) +
   geom_histogram(colour = "white", fill = "black", binwidth = 0.25) +
   #geom_rect(aes(ymin=0, ymax=Inf, xmin=-FC_thr, xmax=FC_thr), inherit.aes=F, fill="grey", alpha = 0.01) +
   xlab(paste("Log2(fold-change)")) +
-  geom_vline(xintercept = c(FC_thr,-FC_thr),linetype=3) +
-  xlim(c(lb,ub)) +
+  #geom_vline(xintercept = c(FC_thr,-FC_thr),linetype=2) +
+  xlim(c(-2,2)) +
   theme_bw() +
   theme(aspect.ratio = 1)
 
@@ -391,25 +387,6 @@ toPlot.stats.res <- t.test(toPlot.stats$diff_IQR[toPlot.stats$isiMM904 == T], to
 toPlot$KO <- factor(toPlot$KO, levels = unique(as.character(toPlot.stats$KO)))
 
 
-# s.kinase_boxplot_metabolic <- ggplot(toPlot, aes(x = label, y = logFC, fill = isiMM904)) + 
-#   stat_boxplot(geom ='errorbar', width = 0.5) +
-#   #geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
-#   geom_boxplot(outlier.shape = NA) + 
-#   #annotate("text", x = 80, y = 2, label = round(toPlot.stats.res$p.value,2)) +
-#   #geom_text(data = NA, aes(x=1, y= -2, label = round(toPlot.stats.res$p.value,2))) +
-#   scale_fill_grey(name=paste("is metabolic enzyme?",  "p-value", " = ", round(toPlot.stats.res$p.value,2), sep = ""),
-#                   breaks=c(T, F),
-#                   labels=c("TRUE", "FALSE")) +
-#   xlab("Kinase mutant") +
-#   ylab(expression(paste("Protein expression, ", log[2], "(mutant/wild-type)", sep=""))) +
-#   ylim(-4, 4) +
-#   #scale_x_discrete(labels = as.vector(my_labels)) +
-#   theme_bw() + 
-#   theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position=c(0.8, 0.2), aspect.ratio = 5/8)
-
-# s.kinase_boxplot_metabolic$toScale <- T
-# plots.list <- lappend(plots.list, s.kinase_boxplot_metabolic)
-
 toPlot.stats <- toPlot %>%
   filter(isiMM904) %>% 
   group_by(label) %>%
@@ -418,7 +395,7 @@ toPlot.stats <- toPlot %>%
   arrange(-n)
 toPlot.stats$label <- factor(toPlot.stats$label, levels = toPlot.stats$label)
 toPlot$label <- factor(toPlot$label, levels = toPlot.stats$label)
-View(toPlot.stats)
+
 s.kinase_boxplot_metabolic_only <- ggplot(toPlot %>% filter(isiMM904), aes(x = label, y = logFC)) + 
   stat_boxplot(geom ='errorbar', width = 0.5) +
   #geom_point(data=filter(toPlot,sign == 1), color="cyan", alpha=0.5) +
@@ -606,14 +583,14 @@ toPlot.stats <- toPlot %>% group_by(Sequence) %>% summarise(median_irt = median(
 p.irt.recalibrated2 <- ggplot() +
   geom_point(data = toPlot, aes(x=aquisition_date.str, y=iRT_recalibrated,colour=Sequence)) +
   geom_point(data = toPlot.stats,
-               aes(x= as.Date("2014-08-15", format="%Y-%m-%d"), 
+               aes(x= as.Date("2014-08-22", format="%Y-%m-%d"), 
                    y = mean_irt, colour=Sequence)) +
   geom_errorbar(data = toPlot.stats, width=2,
-               aes(x = as.Date("2014-08-15", format="%Y-%m-%d"), 
+               aes(x = as.Date("2014-08-22", format="%Y-%m-%d"), 
                    ymax = mean_irt + sd_irt,  
                    ymin = mean_irt - sd_irt, colour=Sequence)) +
   geom_text(data = toPlot.stats, 
-            aes(x = as.Date("2014-08-16", format="%Y-%m-%d"), 
+            aes(x = as.Date("2014-08-22", format="%Y-%m-%d"), 
                 y = mean_irt,
                 label = percent(scaled_sd),
                 colour=Sequence)) +
@@ -630,7 +607,8 @@ p.irt.recalibrated2 <- ggplot() +
 
 ## -- transcriptome vs proteome ----------------
 
-load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+# load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.FC.RData")
 load("./R//objects/transcriptome.FC._clean_.RData")
 load("./R/objects/orf2ko._load_.RData")
 load("./R/objects/gene.annotations._load_.RData")
@@ -649,22 +627,8 @@ transcriptome.FC$isiMM904 = transcriptome.FC$ORF %in% unique(as.character(iMM904
 transcriptome.FC.f = transcriptome.FC[transcriptome.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
 
 
-# 
-# transcriptome.FC$gene_name <- orf2name$gene_name[match(transcriptome.FC$ORF, orf2name$ORF)]
-# transcriptome.FC$KO.name <- orf2name$gene_name[match(transcriptome.FC$KO, orf2name$ORF)]
-# 
-# tmp.subset <- transcriptome.FC[grep("HSP", transcriptome.FC$gene_name ),] 
-# toPlot <- tmp.subset %>% filter(p.value_BH < 0.01, abs(logFC) > 0.4)
-# tmp.p <- ggplot(toPlot, aes(x = KO.name, y = gene_name, fill = logFC)) +
-#   geom_tile()
-# 
-# file_name = "hsp_transcrription.pdf"
-# file_path = paste(figures_dir, file_name, sep="/")
-# save_plot(plot = tmp.p, filename = file_path, base_height = 8.27*1.5, base_width = 11.69*1.5 )
-
-
-
-tr.pr.FC = merge(transcriptome.FC, proteins.matrix.combat.quant.FC, by=c("KO", "ORF"), suffixes=c(".tr", ".pr"))
+proteins.FC = proteins.matrix.sva.0.5.1.FC
+tr.pr.FC = merge(transcriptome.FC, proteins.FC, by=c("KO", "ORF"), suffixes=c(".tr", ".pr"))
 
 pval_thr = 0.01
 
@@ -699,7 +663,7 @@ toPlot$KO.name = orf2name$gene_name[match(toPlot$KO, orf2name$ORF)]
 toPlot$KO.name = factor(toPlot$KO.name, levels=unique(toPlot$KO.name))
 
 
-p.tr_vs_pr_cor = ggplot(toPlot, aes(x = rev(KO.name), y = cor,  size=n)) + 
+p.tr_vs_pr_cor = ggplot(toPlot, aes(x = KO.name, y = cor,  size=n)) + 
   geom_point() +
   geom_hline(yintercept = 0) +
   geom_hline(yintercept = c(-0.5,-0.25,0.25, 0.5), linetype = 3) +  
@@ -712,7 +676,6 @@ p.tr_vs_pr_cor = ggplot(toPlot, aes(x = rev(KO.name), y = cor,  size=n)) +
   theme_bw() +
   theme(legend.position = c(0.25, 0.3),
         axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
-
 
 
 p.tr_vs_pr_cor.v = ggplot(toPlot, aes(x = KO.name, y = cor)) + 
@@ -728,8 +691,20 @@ p.tr_vs_pr_cor.v = ggplot(toPlot, aes(x = KO.name, y = cor)) +
   theme_bw() +
   theme(legend.position = c(0.25, 0.3),
         axis.text.y = element_text(face = "italic"))
-        
 
+
+toPlot = tr.pr.cor.KO.f
+toPlot$KO.name = orf2name$gene_name[match(toPlot$KO, orf2name$ORF)]
+#toPlot$KO.name = paste(Hmisc::capitalize(tolower(toPlot$KO.name)), "p", sep="")
+toPlot$KO.name = factor(toPlot$KO.name, levels=unique(toPlot$KO.name))
+
+p.tr_vs_pr_cor.hist <- ggplot(toPlot, aes(x = cor)) +
+  geom_histogram(colour = "white", fill = "black", binwidth = 0.05) +
+  geom_vline(aes(xintercept = median(cor)), col="red", linetype = 2) +
+  xlab(expression(paste("Pearson correlation between gene and protein expression changes, ", r))) +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+  
 
 # --- saturation plots for supplementary ---------------
 
@@ -814,20 +789,22 @@ plots.list <- lappend(plots.list, p.constant_fraction)
 
 
 
-
-
 # Batch Effects ---------------------
+#load("./R/objects/peptides.matrix.RData")
+#load("./R/objects/peptides.matrix.quant.combat.RData")
+
 load("./R/objects/peptides.matrix.RData")
-load("./R/objects/peptides.matrix.quant.combat.RData")
+load("./R/objects/peptides.matrix.sva.0.5.1.sva_batch_effects.RData")
+
+
 
 before = peptides.matrix
-after  = peptides.matrix.quant.combat
+after  = peptides.matrix.sva.0.5.1
 
 stopifnot(dim(before) == dim(after))
 
 set.seed(1234)
 exp_metadata$aquisition_date.str = as.POSIXct(strftime(exp_metadata$aquisition_date, format="%Y-%m-%d %H:%M:%S"))
-exp_metadata$batch_kmeans = pam(exp_metadata$aquisition_date.str, 7)$clustering
 
 pca = prcomp(t(before), scale.=T)
 x.n = 1
@@ -848,7 +825,6 @@ y_var = round(pca$sdev[y.n]^2/sum(pca$sdev^2)*100,2)
 annot = rbind(annot,data.frame(x_var, y_var, type="after"))
 
 scores = rbind(scores, data.frame(sample.id = rownames(scores), pca$x[,1:5], type = "after"))
-scores$batch_kmeans = factor(exp_metadata$batch_kmeans[match(scores$sample.id, exp_metadata$sample_name)])
 scores$batch = factor(exp_metadata$batch.exp.n[match(scores$sample.id, exp_metadata$sample_name)])
 scores.mix = scores[grepl(pattern="mix", ignore.case=T, x=rownames(scores)),]
 annot$text = paste(annot$x_var, annot$y_var)
@@ -858,14 +834,14 @@ scores$type = factor(scores$type, levels=c("before", "after"))
 library(ggthemes)
 
 p.batch <- ggplot(scores, aes(x=PC1, y=PC2)) + 
-  geom_point(size=2, aes(col=batch_kmeans))+
+  geom_point(size=2, aes(col=batch))+
   geom_vline(xintercept = 0) +
   geom_hline(yintercept = 0) +
   geom_point(data=scores[grepl(pattern="mix", ignore.case=T, x=scores$sample.id),], 
              aes(x=PC1, y=PC2), size=3, col="black", shape=17) +
-  geom_text(data = annot, aes(x=-50, y=-50, label=text)) +
+  geom_text(data = annot, aes(x=0, y=0, label=text)) +
   facet_wrap(~type, scales="fixed") + 
-  scale_colour_tableau() +
+  #scale_colour_tableau() +
   theme_bw() +
   theme(aspect.ratio = 1,
         legend.position = "none")
@@ -904,23 +880,23 @@ plots.list = lappend(plots.list, p)
 
 
 ### ---- sentinels ------
-load("./R/objects/sentinels.proteins.matrix.quant.combat.FC.RData")
-load("./R/objects/sentinels.proteins.matrix.quant.combat_pseudo.FC.PSEUDO.RData")
-load("./R/objects/sentinels.proteins.matrix.quant.combat.RData")
+#load("./R/objects/sentinels.proteins.matrix.quant.combat.FC.RData")
+#load("./R/objects/sentinels.proteins.matrix.quant.combat_pseudo.FC.PSEUDO.RData")
+#load("./R/objects/sentinels.proteins.matrix.quant.combat.RData")
 load("./R/objects/sentinels.table._clean_.RData")
 
-load("./R/objects/proteins.matrix.combat.quant.FC.RData")
-load("./R/objects/proteins.matrix.combat.quant.RData")
+#load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+#load("./R/objects/proteins.matrix.combat.quant.RData")
+load("./R/objects/sentinels.proteins.matrix.sva.0.5.1.RData")
+load("./R/objects/sentinels.proteins.matrix.sva.0.5.1.FC.WT.RData")
 load("./R/objects/iMM904._load_.RData")
 
-protein.matrix = proteins.matrix.combat.quant
-proteins.FC = sentinels.proteins.matrix.quant.combat.FC
-
+protein.matrix = sentinels.proteins.matrix.sva.0.5.1
+proteins.FC = sentinels.proteins.matrix.sva.0.5.1.FC
 
 proteins.FC$gene_name <- orf2name$gene_name[match(proteins.FC$ORF, orf2name$ORF)]
 reference = unique(as.character(proteins.FC$reference))
 proteins.FC.f = proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
-
 
 sentinels.df <- dcast(proteins.FC.f, formula = "KO~ORF", value.var = "logFC")
 sentinels.matrix <- as.matrix(sentinels.df[,-c(1,2)])
@@ -1030,19 +1006,23 @@ save_plot(plot = p.heatmap_sentinels_slide, filename = file_path, base_height = 
 
 load("./R/objects/sentinelsSRM._clean_.RData")
 
-sum(unique(sentinelsSRM$ORF) %in% rownames(sentinels.proteins.matrix.quant.combat))/length(unique(sentinelsSRM$ORF))
+sum(unique(sentinelsSRM$ORF) %in% rownames(sentinels.proteins.matrix.sva.0.5.1))/length(unique(sentinelsSRM$ORF))
 
 #sum((sentinels.table %>% filter(Sentinel.Grade == "A") %>% select(ORF.ID) %>% distinct())$ORF.ID %in% rownames(proteins.matrix.combat.quant))
 
 
 # --- constant fraction & saturation -----
-load("./R/objects/proteins.matrix.combat.quant.FC.RData")
-load("./R/objects/proteins.matrix.combat.quant.RData")
+#load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+#load("./R/objects/proteins.matrix.combat.quant.RData")
+
+load("./R/objects/proteins.matrix.sva.0.5.1.FC.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.RData")
+
 load("./R/objects/iMM904._load_.RData")
 
 EC.genes = gene.annotations[gene.annotations$V3 == "EC number",]
-protein.matrix = proteins.matrix.combat.quant
-proteins.FC = proteins.matrix.combat.quant.FC
+protein.matrix <- proteins.matrix.sva.0.5.1
+proteins.FC <- proteins.matrix.sva.0.5.1.FC
 
 pval_thr = 0.01
 set.seed(123)
@@ -1283,14 +1263,66 @@ p.dist_degree <- ggplot(toPlot , aes(x=factor(min.paths.comb), y=value)) +
   xlab("") +
   theme_bw()
 
-## ---- stats of kinase perturbation, quantified proteins etc ----
 
-load("./R/objects/proteins.matrix.combat.quant.FC.RData")
-load("./R/objects/proteins.matrix.combat.quant.RData")
+
+combinedData_raw <- read.csv("./data/2016-08-12/combinedData_raw.csv")
+growth.data <- combinedData_raw %>% dplyr::select(X, max.mass, lag, max.slope, integral, Plateau.best, max.slope.time, dM.dT.best)
+
+#Manually exclude outliers from Stephan's  ./data/2016-08-12/dataPrep.py 
+#negativeLag = combinedData.index[combinedData['lag']<0].tolist() #Result of this line pasted below
+didntGrow = c('YDR127W', 'YHR183W', 'YLR362W', 'YPR060C', 'YPR074C', 'YDR127W', 'YNL241C', 'YPR060C', 'YPR074C', 'YGL148W', 'YGL148W', 'YGR262C')
+veryDiffReplicates = c('YOL045W', 'YLR362W', 'YOL045W', 'YLR362W')
+growth.data.f <- growth.data %>% filter(!(X %in% didntGrow) | !(X %in% veryDiffReplicates), lag >0)
+
+## -- growth analysis correlation of growth with gene targets ----
+
+#load("./R/objects/proteins.matrix.combat.quant.FC.RData")
+#load("./R/objects/proteins.matrix.combat.quant.RData")
 load("./R/objects/iMM904._load_.RData")
 
-protein.matrix = proteins.matrix.combat.quant
-proteins.FC = proteins.matrix.combat.quant.FC
+protein.matrix <- proteins.matrix.sva.0.5.1
+proteins.FC <- proteins.matrix.sva.0.5.1.FC
+
+reference <- unique(as.character(proteins.FC$reference))
+pval_thr = 0.01
+set.seed(123)
+FC_thr = getFC_thr(proteins.matrix=protein.matrix, pval_thr=pval_thr)
+
+proteins.FC.f <- proteins.FC[proteins.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
+proteins.FC.f$isiMM904 <- proteins.FC.f$ORF %in% unique(as.character(iMM904$gene))
+proteins.FC.f$sign  <- ifelse( abs(proteins.FC.f$logFC) > FC_thr &  proteins.FC.f$p.value_BH < pval_thr, 1, 0 )
+
+proteins.FC.f.stats <- proteins.FC.f %>% 
+  filter(sign == 1, isiMM904) %>% 
+  group_by(KO) %>%
+  summarise(n = n())
+
+toPlot <- inner_join(proteins.FC.f.stats, growth.data.f, by = c("KO" = "X"))
+toPlot.stats <- data.frame( cor = cor.test(toPlot$n, toPlot$max.slope)$estimate,
+                            p.value = cor.test(toPlot$n, toPlot$max.slope)$p.value)
+
+p.growth <- ggplot(toPlot, aes(x = n, y = max.slope )) +
+  geom_point() +
+  geom_text(data = toPlot.stats, size = 5,
+            aes(x = 40, y = 0.35, 
+                label = paste("r = ", round(toPlot.stats$cor, 2), "\n",
+                              "p-value = ", round(toPlot.stats$p.value, 2), sep = ""))) +
+  geom_smooth(se = FALSE, method = "lm") +
+  xlab("Number of differentially expressed enzymes per kinase mutant comparing to wild type strain") +
+  ylab("Exponential growth rate, slope of growth curve") +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+
+plots.list <- lappend(plots.list, p.growth)
+
+## ---- stats of kinase perturbation, quantified proteins etc ----
+
+load("./R/objects/proteins.matrix.sva.0.5.1.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.FC.RData")
+load("./R/objects/iMM904._load_.RData")
+
+protein.matrix = proteins.matrix.sva.0.5.1
+proteins.FC = proteins.matrix.sva.0.5.1.FC
 
 pval_thr = 0.01
 set.seed(123)
@@ -1451,8 +1483,6 @@ stats_tmp <- data.frame(stats =  rownames(tmp),
 stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
 stats_table <- rbind(stats_table, stats_tmp)
 
-
-
 library("gridExtra")
 p <- tableGrob(stats_table)
 p$landscape = T
@@ -1589,8 +1619,10 @@ plot_figure_v4<- function() {
   grid.text("g", just=c("left", "centre"), vp = viewport(layout.pos.row = 100, layout.pos.col = 67),gp=gpar(fontsize=20, col="black"))
   print(p.dist_degree, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 52:63))
   print(p.dist_between, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 64:75))
-  
   print(p.tr_vs_pr_cor.v, vp = viewport(layout.pos.row = 1:60, layout.pos.col = 41:80)) #Volcano plot
+  print(p.volcano_inset, vp = viewport(layout.pos.row = 96:115, layout.pos.col = 1:30)) #Volcano plot
+  print(p.tr_vs_pr_cor.hist, vp = viewport(layout.pos.row = 116:135, layout.pos.col = 1:30)) #Volcano plot
+  
   
 }
 
