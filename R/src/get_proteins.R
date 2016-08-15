@@ -12,8 +12,9 @@ load("./R/objects/peptides.matrix.quant.combat.RData")
 load("./R/objects/peptides.matrix.combat.quant.RData")
 load("./R/objects/peptides.cor.stats.top.RData")
 load("./R/objects/sentinels.table._clean_.RData")
-load("./R/objects/peptides.matrix.sva.0.5.1.sva_batch_effects.RData")
 
+load("./R/objects/peptides.matrix.sva.0.5.1.sva_batch_effects.RData")
+load("./R/objects/sentinels.peptides.matrix.sva.0.5.1.sentinels_analysis.RData")
 
 load("./R/objects/protein_annotations_trypsin._clean_.RData")
 
@@ -125,8 +126,10 @@ makeProteins = function(...) {
   
 }
 
+
 makeProteins(peptides.matrix.sva.0.5.1)
 makeProteins(peptides.matrix)
 makeProteins(peptides.matrix.combat)
 makeProteins(peptides.matrix.combat.quant)
 makeProteins(peptides.matrix.quant.combat)
+
