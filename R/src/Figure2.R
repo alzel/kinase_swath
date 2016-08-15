@@ -1,6 +1,6 @@
 rm(list=ls())
-source("./R/functions.R")
 source("./R/boot.R")
+source("./R/functions.R")
 
 plots.list = list()
 fun_name = "Figure2"
@@ -12,8 +12,8 @@ library(gridExtra)
 #library(cowplot)
 load("./R/objects/pathway2orf._load_.RData")
 load("./R/objects/exp_metadata._clean_.RData")
-load("./R/objects/proteins.matrix.combat.quant.FC.RData")
-load("./R/objects/proteins.matrix.combat.quant.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.FC.RData")
 load("./R/objects/gene.annotations._load_.RData")
 load("./R/objects/iMM904._load_.RData")
 load("./R/objects/metabolite2iMM904._load_.RData")
@@ -25,8 +25,8 @@ orf2name$V6 = as.character(orf2name$V6)
 orf2name$V6[orf2name$V6 == ""] = orf2name$V4[orf2name$V6 == ""]
 names(orf2name) = c("ORF", "gene_name")
 
-protein.matrix = proteins.matrix.combat.quant
-proteins.FC = proteins.matrix.combat.quant.FC
+protein.matrix = proteins.matrix.sva.0.5.1
+proteins.FC = proteins.matrix.sva.0.5.1.FC
 
 
 reference = unique(as.character(proteins.FC$reference))
@@ -1041,7 +1041,7 @@ my_means <- function(proteins.matrix) {
 }
 
 
-protein.matrix.mean = my_means(exp(proteins.matrix.combat.quant))
+protein.matrix.mean = my_means(exp(proteins.matrix.sva.0.5.1))
 
 all.kinases <- c("WT", unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])))
 combinations <- combn(all.kinases, 2)
