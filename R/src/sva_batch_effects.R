@@ -34,7 +34,7 @@ varsEdata <- rowSds(edata)/rowMeans(edata)
 selectEdata <- order(varsEdata, decreasing = TRUE)[seq(n_genes, length(varsEdata))]
 controls <- as.numeric(rownames(edata) %in% rownames(edata)[selectEdata])
 # as we do not include experimental conditions,  we use the supervised method
-svobj <- sva(peptides.matrix, mod = mod, mod0 = mod0, n.sv = n.sv,
+svobj <- sva(edata, mod = mod, mod0 = mod0, n.sv = n.sv,
              method = "supervised", controls = controls)
 newV = NULL ## neccessary due to bug in the sva pacakge
 fsvaobj <- fsva(edata, mod, svobj, newdat = NULL)
