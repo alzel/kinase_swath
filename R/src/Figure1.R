@@ -578,7 +578,7 @@ toPlot.stats <- toPlot %>% group_by(Sequence) %>% summarise(median_irt = median(
                                             cv_irt = sd_irt/mean_irt,
                                             scaled_sd = sd_rt/gradient_length)
 
-
+mean(toPlot.stats$scaled_sd)
 
 p.irt.recalibrated2 <- ggplot() +
   geom_point(data = toPlot, aes(x=aquisition_date.str, y=iRT_recalibrated,colour=Sequence)) +
@@ -657,7 +657,7 @@ tr.pr.cor.KO.f = tr.pr.FC %>% group_by(KO) %>% filter(isiMM904) %>%
             n = n())
 
 
-toPlot = tr.pr.cor.KO.f[tr.pr.cor.KO.f$p.value < pval_thr,] %>% arrange(cor)
+toPlot = tr.pr.cor.KO.f %>% arrange(cor)
 toPlot$KO.name = orf2name$gene_name[match(toPlot$KO, orf2name$ORF)]
 #toPlot$KO.name = paste(Hmisc::capitalize(tolower(toPlot$KO.name)), "p", sep="")
 toPlot$KO.name = factor(toPlot$KO.name, levels=unique(toPlot$KO.name))
@@ -680,6 +680,7 @@ p.tr_vs_pr_cor = ggplot(toPlot, aes(x = KO.name, y = cor,  size=n)) +
 
 p.tr_vs_pr_cor.v = ggplot(toPlot, aes(x = KO.name, y = cor)) + 
   geom_point() +
+  geom_point(data=toPlot[toPlot$p.value >0.01,], aes(x=KO.name, y=cor), colour = "grey") +
   geom_hline(yintercept = 0) +
   geom_hline(yintercept = c(-0.5,-0.25,0.25, 0.5), linetype = 3) +  
   ylab(expression(paste("Pearson correlation between gene and protein expression log fold-changes, ", r))) +
@@ -692,6 +693,7 @@ p.tr_vs_pr_cor.v = ggplot(toPlot, aes(x = KO.name, y = cor)) +
   theme(legend.position = c(0.25, 0.3),
         axis.text.y = element_text(face = "italic"))
 
+plots.list <- lappend(plots.list, p.tr_vs_pr_cor.v)
 
 toPlot = tr.pr.cor.KO.f
 toPlot$KO.name = orf2name$gene_name[match(toPlot$KO, orf2name$ORF)]
@@ -981,6 +983,8 @@ p.heatmap_sentinels <- ggplot(toPlot) +
         panel.grid.minor = element_blank()) + 
   labs(x="Kinase mutant", y = "Marker for biological process")
 
+plots.list <- lappend(plots.list, p.heatmap_sentinels)
+
 p.heatmap_sentinels_slide <- ggplot(toPlot) +  
   geom_tile(aes(x = KO.gene, y = sentinel_popular, fill = my_fill ), colour="grey") +
   #   scale_fill_gradient2(low="#1F78B4",high="#E31A1C",mid ="white",
@@ -1039,6 +1043,9 @@ proteins.FC.f.stats <- proteins.FC.f %>%
   summarize(#n_metabolic = sum(isMetabolic == T),
             n_yeast  = sum(isiMM904),
             n_total = n())
+proteins.FC.f.stats$gene_name <- orf2name$gene_name[match(proteins.FC.f.stats$KO, orf2name$ORF)]
+
+filter(proteins.FC.f.stats, gene_name %in% c("FMP48", "NPR1", "NNK1", "VPS15"))
 
 proteins.FC.f.stats$n_yeast_fraction <- proteins.FC.f.stats$n_yeast/proteins.FC.f.stats$n_total
 toPlot <- proteins.FC.f.stats 
@@ -1237,7 +1244,6 @@ p.dist_changes = ggplot(toPlot , aes(x=factor(min.paths.comb), y=value)) +
   theme_bw()
 
 
-
 toPlot <- proteins.FC.f.stats.long %>% filter(min.paths.comb != "none", variable == "betweenness")
 toText <- min.paths.comb.stats  %>% filter(min.paths.comb != "none", variable == "betweenness")
 library(scales)
@@ -1264,6 +1270,34 @@ p.dist_degree <- ggplot(toPlot , aes(x=factor(min.paths.comb), y=value)) +
   theme_bw()
 
 
+toPlot <- proteins.FC.f.stats.long %>% 
+  filter(variable == "betweenness" | variable == "degree"| variable == "changes") %>%
+  dcast(formula = "KO+gene_name~variable", value.var = "value") %>%
+  melt(id.vars = c("KO", "gene_name", "changes"))
+
+toPlot.stats <- toPlot %>% group_by(variable) %>%
+  summarise(x = max(changes, na.rm = T) - 0.2*max(changes,  na.rm = T),
+            y = max(value, na.rm = T) - 0.2*max(value, na.rm = T),
+            cor = cor.test(changes, value)$estimate,
+            p.value = cor.test(changes, value)$p.value)
+toPlot.stats$variable = factor(toPlot.stats$variable, levels = c("degree", "betweenness"))
+toPlot$variable = factor(toPlot$variable, levels = c("degree", "betweenness"))
+
+p.network_vs_changes <- ggplot(toPlot, aes(x = changes, y = value)) +
+  geom_point() +
+  geom_smooth(method="lm",se=FALSE) +
+  geom_text(data = toPlot.stats, 
+            aes(x = x,  y = y,
+                label = paste("r = ", round(cor, 2), "\n",
+                              "p-value = ", round(p.value, 2), sep = ""))) +
+  facet_wrap(~variable, scales = "free_y") +
+  xlab("Number of differentially expressed enzymes per kinase mutant") +
+  theme_bw() + 
+  theme(aspect.ratio = 1) 
+
+plots.list <- lappend(plots.list, p.network_vs_changes)
+
+## -- growth analysis correlation of growth with gene targets ----
 
 combinedData_raw <- read.csv("./data/2016-08-12/combinedData_raw.csv")
 growth.data <- combinedData_raw %>% dplyr::select(X, max.mass, lag, max.slope, integral, Plateau.best, max.slope.time, dM.dT.best)
@@ -1274,10 +1308,6 @@ didntGrow = c('YDR127W', 'YHR183W', 'YLR362W', 'YPR060C', 'YPR074C', 'YDR127W', 
 veryDiffReplicates = c('YOL045W', 'YLR362W', 'YOL045W', 'YLR362W')
 growth.data.f <- growth.data %>% filter(!(X %in% didntGrow) | !(X %in% veryDiffReplicates), lag >0)
 
-## -- growth analysis correlation of growth with gene targets ----
-
-#load("./R/objects/proteins.matrix.combat.quant.FC.RData")
-#load("./R/objects/proteins.matrix.combat.quant.RData")
 load("./R/objects/iMM904._load_.RData")
 
 protein.matrix <- proteins.matrix.sva.0.5.1
