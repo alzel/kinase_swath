@@ -6,7 +6,7 @@ library("reshape2")
 library("igraph")
 #for data normalization
 #library("preprocessCore")
-library("DESeq")
+#library("DESeq")
 #library("vsn")
 library("limma")
 #install.packages(c("NMF","grid", "NbClust", "dplyr","plyr", "xlsx"))
@@ -26,6 +26,8 @@ library("RColorBrewer")
 
 output_dir = "./R/objects"
 figures_dir = "./figures"
+suppl_dir = "./supplementary_files"
 
 dir.create(output_dir)
 dir.create(figures_dir)
+dir.create(suppl_dir)
