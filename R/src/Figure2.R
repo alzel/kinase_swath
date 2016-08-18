@@ -310,6 +310,7 @@ my_colours <- rev(brewer.pal(name = "RdBu", n = length(my_breaks) - 1))
 my_colours[c(4,5)] <- "white"
 #pheatmap(d.matrix.all, cluster_rows = F, cluster_cols = F)
 
+
 p.heatmap <- ggplot(toPlot) +  
   geom_tile(aes(x = x.name, y = y.name, fill = cut(value, breaks = my_breaks)), colour="grey") +
 #   scale_fill_gradient2(low="#1F78B4",high="#E31A1C",mid ="white",
@@ -327,8 +328,11 @@ toPlot <- FC.f.metabolic.stats %>%
   melt(id.vars = "KO.gene") 
 toPlot$KO.gene <- factor(toPlot$KO.gene, levels = rownames(d.matrix.all)) 
 
+toPlot %>% ungroup() %>% summarise( n = sum(abs(value)<0.5)/n())
+toPlot %>% ungroup() %>% filter( x.name == "KSS1" | x.name == "HOG1", y.name == "KSS1" | y.name == "HOG1" )
 
-library(ggthemes)
+
+
 p.barplot = ggplot(toPlot, aes(x=KO.gene, y=value, fill=variable)) + 
   geom_bar(stat="identity", width=.5) + 
   labs(x = "", y = "Fraction of perturbed metabolic network") +
@@ -390,7 +394,6 @@ p.sim_hist <- ggplot(toPlot, aes(x = value)) +
   theme_bw()
 
 #### ---- Example of kinase pairs YPK1-YPK2, FUS3-KSS1, MEK1-MEK2 ----
-
 
 toSelect <- c("YPK1", "YPK2", "FUS3", "KSS1", "YCK1", "YCK2")
 
@@ -465,9 +468,44 @@ p.pairs <- grid.arrange(p1, p2, p3, ncol = 3)
 
 plots.list <- lappend(plots.list, p.pairs)
 
+## -- MAPK pathway example ----
+proteins.FC.f$sign <- ifelse(abs(proteins.FC.f$logFC) >= FC_thr & proteins.FC.f$p.value_BH < pval_thr, 1,0)
+toPlot <- proteins.FC.f %>% filter(KO.gene %in% c("STE20", "STE11", "STE7", "FUS3"), isiMM904) %>% 
+  group_by(ORF) %>% filter(sum(sign) >= 1)
 
 
-#### ---- overlaps up/down for supplementary --------------------
+toPlot$ORF.name <- orf2name$gene_name[match(toPlot$ORF, orf2name$ORF)]
+
+my_breaks <- seq(2, -2, -0.5)
+my_colours <- rev(brewer.pal(name = "RdBu", n = length(my_breaks) - 1))
+my_colours[c(4,5)] <- "white"
+
+tmp.df <- toPlot %>% dcast(formula = "KO.gene~ORF.name", value.var ="logFC" )
+tmp.matrix <- as.matrix(tmp.df[,-1])
+rownames(tmp.matrix) <- tmp.df$KO.gene
+
+file_name = paste("supplementary", fun_name, sep = ".")
+file_path = paste(figures_dir, file_name, sep="/")
+file_path = paste(file_path, "mapk_example", "pdf", sep = ".")
+pheatmap(tmp.matrix, color = colorRampPalette(c("firebrick3", "white", "firebrick3"))(length(my_breaks) - 1),
+         cellwidth = 10, cellheight = 10,
+         breaks = my_breaks, 
+         filename = file_path)
+
+# p.mapk_example <- ggplot(toPlot) +  
+#   #geom_tile(aes(y = KO.gene, x = ORF.name, fill = cut(logFC, breaks = my_breaks)), colour="grey") +
+#   geom_tile(aes(y = KO.gene, x = ORF.name, fill = logFC), colour="grey") +
+#   scale_fill_gradient2(low="#1F78B4",high="#E31A1C",mid ="white", midpoint=0)  +
+#   #scale_fill_manual(values = my_colours) +
+#   theme_bw() +
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1, face = "italic"),
+#         axis.text.y = element_text(face = "italic")) +
+#   labs(x="", y = "")
+
+
+
+
+#### ---- overlaps up/down for supplementary -----
 zeros.matrix <- matrix(data=0, ncol = ncol(d.matrix.all), nrow = nrow(d.matrix.all))
 zeros.matrix[upper.tri(zeros.matrix)] <- d.matrix.all[upper.tri(d.matrix.all)]
 zeros.matrix[lower.tri(zeros.matrix)] <- d.matrix.all[lower.tri(d.matrix.all)]
