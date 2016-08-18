@@ -14,6 +14,7 @@ load("./R/objects/pathway2orf._load_.RData")
 load("./R/objects/pathways._load_.RData")
 load("./R/objects/gene.annotations._load_.RData")
 load("./R/objects/kegg_categories._load_.RData")
+load("./R/objects/iMM904._load_.RData")
 
 orf2name = droplevels(unique(gene.annotations[,c("V4", "V6")]))
 orf2name$V4 = as.character(orf2name$V4)
@@ -53,6 +54,7 @@ transcriptome.FC$KO = NULL
 transcriptome.FC = transcriptome.FC[,c("ORF", "logFC", "p.value", "p.value_BH", "KO.ORF")]
 names(transcriptome.FC)[length(transcriptome.FC)] = "KO"
 transcriptome.FC$isMetabolic = transcriptome.FC$ORF %in% unique(KEGG.pathways.f$ORF)
+transcriptome.FC$isiMM904 = transcriptome.FC$ORF %in% unique(as.character(iMM904$gene))
 transcriptome.FC.f = transcriptome.FC[transcriptome.FC$KO %in% unique(as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),]
 
 
@@ -91,7 +93,7 @@ p = ggplot(toPlot, aes(x = KO.name, y = cor,  size=n)) +
   geom_hline(yintercept = c(-0.5,-0.25,0.25, 0.5), linetype = 3) +  
   ylim(-0.8,0.8) +
   coord_flip()
-
+p
 plots.list = lappend(plots.list, p)
 
 
@@ -211,5 +213,8 @@ plots.list = lappend(plots.list, p)
 file_name = paste(fun_name, "report.pdf", sep=".")
 file_path = paste(figures_dir, file_name, sep="/")
 save_plots(plots.list, filename=file_path, type="l")
+
+
+
 
 
