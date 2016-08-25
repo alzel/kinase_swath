@@ -6,7 +6,7 @@ plots.list = list()
 fun_name = "Figure2"
 
 library(gridExtra)
-
+library(ggthemes)
 
 #library(scales)
 #library(cowplot)
@@ -1151,30 +1151,42 @@ plots.list <- lappend(plots.list, s.combined.slopes)
 
 # ---  similarities comparisong KEGG/REACTOME ------------
 
-load("./R/objects/similarities.dataset.signaling_similarity.RData")
-toPlot <- similarities.dataset
+load("./R/objects/pathway_similarities.grouped.dataset.signaling_similarity.RData")
+toPlot <-  pathway_similarities.grouped.dataset %>% filter(sim_type != "pearson_fc",
+                                                           sim_type != "overlap.all",
+                                                           n_cut == ">=3")
+
 toPlot$sample_type <- factor(toPlot$sample_type, levels = c("signal", "random"))
+toPlot$sim_type <- factor(toPlot$sim_type, levels = c("overlap.up", "overlap.down", "pearson"))
 
-toPlot.stats <- tbl_df(toPlot) %>% group_by(sim_type, pathway_base) %>% 
-  summarise(pval = (wilcox.test(value[sample_type == "signal"], value[sample_type == "random"]))$'p.value' )
 
-toText <- toPlot.stats %>% filter(sim_type == "overlap")
-p.similarities <- ggplot(toPlot %>% filter(sim_type == "overlap"), aes(x = value)) +
+toPlot.stats <- toPlot %>% group_by(sim_type, pathway_base, n_cut) %>% 
+  summarise(pval = (wilcox.test(value[sample_type == "signal"], value[sample_type == "random"])$'p.value'))
+
+toPlot.stats.medians <- toPlot %>% 
+  group_by(sim_type, pathway_base, n_cut, sample_type) %>% 
+  summarise(median_value = median(value, na.rm = T))
+
+toPlot.stats$padj <- p.adjust(toPlot.stats$pval, method = "BH")
+
+toText <- toPlot.stats %>% filter(sim_type == "pearson")
+p.similarities <- ggplot(toPlot %>% filter(sim_type == "pearson"), aes(x = value)) +
   geom_density(aes( fill = sample_type), alpha = 0.5) +
-  scale_x_continuous(breaks = seq(0,1, by = 0.25)) +
-  xlab("Kinase mutaint pairs perturbation similarity, Jaccard index") + 
+  #scale_x_continuous(breaks = seq(0,1, by = 0.25)) +
+  xlab("Co-expression of enzymes within signaling pathways, r") + 
   facet_wrap(~pathway_base, scales = "free") +
-  annotate(geom = "text", x=0.75, y = 1, label = paste("p-value=", format(toText$pval, digits=2, scientific=T)))+
+  annotate(geom = "text", x=0.75, y = 1, label = paste("p-value=", format(toText$padj, digits=2, scientific=T)))+
   theme_bw() + 
   theme(legend.position = c(0.1, 0.5))
 
 
-s.similarities <- ggplot(toPlot, aes(x = value)) +
-  geom_density(aes( fill = sample_type), alpha = 0.5) +
-  scale_x_continuous(breaks = seq(0,1, by = 0.25)) +
-  xlab("Kinase mutaint pairs perturbation similarity") + 
-  facet_wrap(pathway_base~sim_type, scales = "free") +
-  geom_text(data = toPlot.stats, aes(x=0.75, y = 1, label= paste("p-value=", format(pval, digits=2, scientific=T))))+
+
+s.similarities <- ggplot() +
+  geom_density(data = toPlot, aes(x = value, fill = sample_type), alpha = 0.5) +
+  xlab("Kinase mutants pairs perturbation similarity") + 
+  facet_grid(pathway_base~sim_type, scales = "free") +
+  geom_text(data = toPlot.stats, aes(x=0.5, y = 5, label= paste("p-value=", format(padj, digits=2, scientific=T)))) +
+  geom_vline(data = toPlot.stats.medians, aes(xintercept = median_value, colour = sample_type), linetype = 2) +
   theme_bw() + 
   theme(legend.position = c(0.1, 0.5), aspect.ratio = 1)
 
