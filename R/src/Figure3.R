@@ -1144,6 +1144,10 @@ p.cv <- ggplot(toPlot, aes(x = met_name, y = Rsquared, fill=degree)) +
   background_grid(major = "y", minor = "y") +
   panel_border() 
 
+mean(toPlot$Rsquared)
+table(toPlot$model)
+
+
 # ---- networks part ------
 
 predicted.metabolites.long <- all_final_models %>% 
@@ -2210,7 +2214,66 @@ file_path = paste(figures_dir, file_name, sep="/")
 
 ggsave(filename = file_path, plot = p,  width = 210*1.5 , height = 297*1.5, units = "mm")
 
+### --- PCA of metabolite data ----
 
+load("./R/objects/dataPPP_AA.imputed.create_datasets.RData")
+load("./R/objects/dataPPP_AA.create_datasets.RData")
+
+metabolite.data.imputed = dataPPP_AA.imputed$metabolites
+metabolite.matrix = metabolite.data.imputed
+metabolite.matrix = metabolite.matrix[,which(!(colnames(metabolite.matrix) %in% c("AMP", "ADP", "ATP")))]
+
+#removing outliers
+metabolite.matrix.cov = cov.rob(metabolite.matrix)
+metabolite.matrix.md = mahalanobis(metabolite.matrix, center=metabolite.matrix.cov$center, cov=metabolite.matrix.cov$cov)
+n = nrow(metabolite.matrix); p=ncol(metabolite.matrix)
+
+plot(qchisq((1:n)/(n+1),p), sort(metabolite.matrix.md), 
+     xlab = expression(paste(chi^2," quantiles")),
+     ylab = "Sorted Machalanobis distances")
+abline(0,1)
+
+p = recordPlot()
+plots.list = lappend(plots.list, p)
+
+
+#decided to remove 3 points
+metabolite.matrix.f = metabolite.matrix
+metabolite.matrix.f = metabolite.matrix.f[!(rownames(metabolite.matrix.f) %in% names(sort(-metabolite.matrix.md)[1:3])),]
+
+metabolite.matrix.f = metabolite.matrix.f[rownames(metabolite.matrix.f) %in% c("WT", as.character(exp_metadata$ORF[exp_metadata$type == "Kinase"])),] #taking only kinase deletions
+
+toPlot = scale(metabolite.matrix.f)
+s1 = prcomp(toPlot)
+
+# toPlot = toPlot[!rownames(toPlot) %in% names(c(which(s1$x[,1] == max(s1$x[,1])), which(s1$x[,2] == max(s1$x[,2])))),]
+# s1 = prcomp(toPlot)
+xPC = 1
+yPC = 2
+labels = orf2name$gene_name[match(rownames(s1$x), orf2name$ORF)]
+labels[is.na(labels)] = "WT"
+
+biplot(s1$x[,c(xPC,yPC)],s1$rotation[,c(xPC,yPC)], cex=0.66,
+       xlabs=labels,
+       ylabs=toupper(metabolite2iMM904$model_name[match(rownames(s1$rotation[,c(xPC,yPC)]), metabolite2iMM904$id)]),
+       xlab=paste(paste0("PC",xPC), round(s1$sdev[xPC]^2/sum(s1$sdev^2),2)),
+       ylab=paste(paste0("PC",yPC), round(s1$sdev[yPC]^2/sum(s1$sdev^2),2)))
+
+abline(h=0,v=0)
+p = recordPlot()
+plots.list = lappend(plots.list, p)
+
+metabolite.data = dataPPP_AA$metabolites
+metabolite.data.scaled = scale(metabolite.data)
+
+#counting how many mutants has at least one metabolite with -+2sigma perturbation
+perturbation.stats <- apply(metabolite.data.scaled, 1, function(x) {
+  if(any(abs(na.omit(x)) > 2)) {
+    return(TRUE)
+  }
+  return(FALSE)
+})
+sum(perturbation.stats)/length(perturbation.stats)
 
 # ---- Figure3 --------------
 
