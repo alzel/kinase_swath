@@ -2275,6 +2275,43 @@ perturbation.stats <- apply(metabolite.data.scaled, 1, function(x) {
 })
 sum(perturbation.stats)/length(perturbation.stats)
 
+## correlation of metabolite data with metabolic enzymes -----
+load("./R/objects/dataAA.create_datasets.RData")
+load("./R/objects/dataTCA.create_datasets.RData")
+load("./R/objects/dataPPP_AA.create_datasets.RData")
+
+measured.enzymes = measured.proteins[measured.proteins %in%  iMM904$gene]
+
+corPPP_AAA.long <- melt(cor(dataPPP_AA$metabolite, dataPPP_AA$proteins[,measured.enzymes], use="pairwise.complete.obs"), id.vars = rownames )
+corTCA.long <- melt(cor(dataTCA$metabolite, dataTCA$proteins[,measured.enzymes], use="pairwise.complete.obs"), id.vars = rownames)
+corAA.long <- melt(cor(dataAA$metabolite, dataAA$proteins[,measured.enzymes], use="pairwise.complete.obs"), id.vars = rownames)
+
+
+metabolites.cor  <- rbind(corPPP_AAA.long, corTCA.long, corAA.long)
+names(metabolites.cor) = c("metabolite", "enzyme", "cor")
+metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
+metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
+
+metabolites.cor$metabolite_name <- toupper(metabolite2iMM904$model_name[match(metabolites.cor$metabolite, metabolite2iMM904$id)])
+metabolites.cor$metabolite_name <- metabolite.order$met_name[match(metabolites.cor$metabolite, metabolite.order$metabolite)]
+
+toPlot <- metabolites.cor %>% 
+  filter(metabolite %in% metabolite.order$metabolite)
+
+toPlot$metabolite_name <- factor(toPlot$metabolite_name, levels = as.character(metabolite.order$met_name))
+
+toPlot.stats <- toPlot %>% 
+  group_by(metabolite_name) %>%
+  summarise(median.cor = median(cor, na.rm=T))
+
+p.cor <- ggplot(toPlot, aes(x = cor)) +
+  geom_density() +
+  geom_vline(data = toPlot.stats, aes(xintercept = median.cor), col="red", linetype = 3) +
+  facet_wrap(~metabolite_name, scales="free") +
+  xlab("Pearson correlation between enzyme and metabolite levels")
+plots.list = lappend(plots.list, p.cor)
+
+
 # ---- Figure3 --------------
 
 plot_figure3_v1 <- function() {
