@@ -146,7 +146,6 @@ UniProt2Reactome.kinases <- dplyr::rename(UniProt2Reactome.kinases, pathway = re
 load("./R/objects/pathway2orf._load_.RData")
 pathway2orf$uniprot_id = uniprot2orf.kinases$uniprot_id[match(pathway2orf$ORF, uniprot2orf.kinases$ORF)]
 
-View(pathway2orf)
 
 orf2kegg.kinases <- pathway2orf %>% 
   dplyr::filter(!is.na(uniprot_id)) %>%
@@ -161,7 +160,6 @@ orf2kegg.kinases$pathway_base = "kegg"
 UniProt2Reactome.kinases$pathway_base = "reactome"
 
 pathway_kinases <- bind_rows(orf2kegg.kinases, UniProt2Reactome.kinases)
-
 
 
 set.seed(123)
@@ -339,7 +337,11 @@ pathway_similarities %>%
   group_by(pathway_base, sim_type, sample_type, sorted_pair) %>%
   mutate(member_of_n = n()) %>% 
   ungroup() %>% filter(sim_type == "overlap.up") %>%
-  arrange(-member_of_n)
+  arrange(-member_of_n) %>%
+  group_by(pathway_base) %>% 
+  mutate(total_pathways = length(unique(pathway)))
+
+
 
 # "P12688|P18961" pair found in multiple pathways in reactome
 
@@ -400,6 +402,172 @@ p <- makeReport(random_repeats.stats = pathway_similarities_random.repeats.stats
            sim_type = "pearson")
 plots.list <- lappend(plots.list, p)
 
+
+## -- kinase classes/familie ----
+
+load("./R/objects/yeastkinome_classes._clean_.RData")
+yeastkinome_classes.f <- yeastkinome_classes %>% 
+  filter(Superfamily %in% c("Protein kinase", "Protein kinase-like"),
+         ORF %in% kinase_orfs)
+  
+  
+
+group_similarities <- ddply(yeastkinome_classes.f, 
+      .(Group), 
+      .fun = function(x) {
+        return.list = list()
+        #x = yeastkinome_classes.f %>% filter(Group == "AGC")
+        z <<- x
+        tmp$n = length(unique(x$ORF))
+        if( tmp$n < 2 ) {
+       
+          return(NULL)
+        }
+        tmp <<- data.frame(t(combn(unique(as.character(x$ORF)), 2)))
+        
+        return.list$similarities.up <- left_join(tmp, similarities.long.df.up)
+        return.list$similarities.down <- left_join(tmp, similarities.long.df.down)
+        return.list$similarities.all <- left_join(tmp, similarities.long.df.all)
+        
+        return.list$cor <- left_join(tmp, protein.matrix.mean.cor.long)
+        return.list$cor_fc <- left_join(tmp, proteins.FC.f.matrix.cor.long)
+        
+        return(bind_rows(return.list))
+      })
+
+family_similarities <- ddply(yeastkinome_classes.f, 
+                            .(Family), 
+                            .fun = function(x) {
+                              return.list = list()
+                              #x = yeastkinome_classes.f %>% filter(Group == "AGC")
+                              z <<- x
+                              tmp$n = length(unique(x$ORF))
+                              if( tmp$n < 2 ) {
+                                
+                                return(NULL)
+                              }
+                              tmp <<- data.frame(t(combn(unique(as.character(x$ORF)), 2)))
+                              
+                              return.list$similarities.up <- left_join(tmp, similarities.long.df.up)
+                              return.list$similarities.down <- left_join(tmp, similarities.long.df.down)
+                              return.list$similarities.all <- left_join(tmp, similarities.long.df.all)
+                              
+                              return.list$cor <- left_join(tmp, protein.matrix.mean.cor.long)
+                              return.list$cor_fc <- left_join(tmp, proteins.FC.f.matrix.cor.long)
+                              
+                              return(bind_rows(return.list))
+                            })
+
+names(family_similarities)[1] = "Group"
+toPlot <- group_similarities %>%
+  group_by(Group, sim_type) %>%
+  mutate(n = n(),
+         median.value = median(value, na.rm = T)) %>%
+  filter(n>2) %>%
+  group_by(sim_type) %>%
+  arrange(median.value) %>% droplevels()
+
+#toPlot <- toPlot[with(toPlot, order(sim_type, median.value)),]
+
+
+toPlot.f <- toPlot %>% filter(sim_type == "pearson")
+aov_out <- anova(lm(value~Group, data = toPlot.f))
+
+tmp.groups = sapply(names(which(summary(lm(value~Group, data = toPlot.f))$coef[-1,4]<0.05)), 
+       function(z) {
+         sub(pattern = "Group", 
+             replacement = "", 
+             x = z)
+       })
+
+toPlot.f.stats <- data.frame(x = tmp.groups,
+                             y = max(toPlot.f$value, na.rm = T),
+                             label = "*")
+toPlot.f.stats2 <- data.frame(x = length(levels(toPlot.f$Group)) - 1,
+                              y = max(toPlot.f$value, na.rm = T),
+                              label = paste("P-value  = ", format(aov_out$`Pr(>F)`[1]), sep = "" ))
+
+p.box_pearson <- ggplot(toPlot.f, aes(x = Group, y = value)) +
+  stat_boxplot(geom ='errorbar', width = 0.33) +
+  geom_text(data = toPlot.f.stats, aes(x = x, y = y, label = label), size = 10, colour = "red") +
+  geom_text(data = toPlot.f.stats2, aes(x = x, y = y, label = label)) +
+  geom_hline(yintercept = mean(toPlot.f$value), linetype = 2) +
+  geom_boxplot() +
+  #geom_jitter(data = toPlot.pearson, aes(x = Group, y = value )) +
+  xlab("Kinase family") +
+  ylab("Co-expression of metabolic enzymes,\nPearson's correlation coefficient") 
+
+plots.list <- lappend(plots.list, p.box_pearson)
+  
+#upregulated
+toPlot.f <- toPlot %>% filter(sim_type == "overlap.up")
+aov_out <- anova(lm(value~Group, data = toPlot.f))
+
+tmp.groups = sapply(names(which(summary(lm(value~Group, data = toPlot.f))$coef[-1,4]<0.05)), 
+                    function(z) {
+                      sub(pattern = "Group", 
+                          replacement = "", 
+                          x = z)
+                    })
+
+toPlot.f.stats <- data.frame(x = tmp.groups,
+                             y = max(toPlot.f$value, na.rm = T),
+                             label = "*")
+
+toPlot.f.stats2 <- data.frame(x = length(levels(toPlot.f$Group)) - 1,
+                              y = max(toPlot.f$value, na.rm = T),
+                              label = paste("P-value  = ", format(aov_out$`Pr(>F)`[1]), sep = "" ))
+
+
+p.box_up <- ggplot(toPlot.f, aes(x = Group, y = value)) +
+  stat_boxplot(geom ='errorbar', width = 0.33) +
+  geom_text(data = toPlot.f.stats, aes(x = x, y = y, label = label), size = 10, colour = "red") +
+  geom_text(data = toPlot.f.stats2, aes(x = x, y = y, label = label)) +
+  geom_hline(yintercept = mean(toPlot.f$value), linetype = 2) +
+  geom_boxplot() +
+  #geom_jitter(data = toPlot.pearson, aes(x = Group, y = value )) +
+  xlab("Kinase family") +
+  ylab("Overlap of upregulated\nkinase targets, Jaccard index") 
+plots.list <- lappend(plots.list, p.box_up)
+
+#downregulated
+toPlot.f <- toPlot %>% filter(sim_type == "overlap.down")
+aov_out <- anova(lm(value~Group, data = toPlot.f))
+
+tmp.groups = sapply(names(which(summary(lm(value~Group, data = toPlot.f))$coef[-1,4]<0.05)), 
+                    function(z) {
+                      sub(pattern = "Group", 
+                          replacement = "", 
+                          x = z)
+                    })
+
+toPlot.f.stats <- data.frame(x = tmp.groups,
+                             y = max(toPlot.f$value, na.rm = T),
+                             label = "*")
+
+toPlot.f.stats2 <- data.frame(x = length(levels(toPlot.f$Group)) - 1,
+                              y = max(toPlot.f$value, na.rm = T),
+                              label = paste("P-value  = ", format(aov_out$`Pr(>F)`[1]), sep = "" ))
+
+
+p.box_down <- ggplot(toPlot.f, aes(x = Group, y = value)) +
+  stat_boxplot(geom ='errorbar', width = 0.33) +
+  geom_text(data = toPlot.f.stats, aes(x = x, y = y, label = label), size = 10, colour = "red") +
+  geom_text(data = toPlot.f.stats2, aes(x = x, y = y, label = label)) +
+  geom_hline(yintercept = mean(toPlot.f$value), linetype = 2) +
+  geom_boxplot() +
+  xlab("Kinase family") +
+  ylab("Overlap of downregulated\nkinase targets, Jaccard index") 
+plots.list <- lappend(plots.list, p.box_down)
+
+
+p.all <- cowplot::plot_grid(p.box_pearson, p.box_up, p.box_down, labels = c("a", "b", "c"), nrow = 3, align = "v")
+plots.list <- lappend(plots.list, p.all)
+
+pathway_kinases %>% ungroup() %>%
+  summarise(n = length(unique(uniprot_id)))
+
+
 file_name = paste("supplementary", fun_name, sep = ".")
 file_path = paste(figures_dir, file_name, sep="/")
 
@@ -429,118 +597,3 @@ lapply(seq_along(plots.list) ,
        })
 
 
-
-
-# 
-# # single random example of overlaps
-# set.seed(123)
-# toPlot <- bind_rows(pathway_similarities, pathway_similarities_random.repeats %>% group_by(rep) %>% sample_n(1)) %>% 
-#   filter(sim_type != "overlap.all", grepl("overlap", sim_type) )
-# toPlot$sample_type <- factor(toPlot$sample_type, levels = c("signal", "random"))
-# toPlot$sim_type <- as.factor(toPlot$sim_type)
-# 
-# toPlot.stats <- toPlot %>% group_by(sim_type, pathway_base) %>% 
-#   summarise(pval = (wilcox.test(value[sample_type == "signal"], value[sample_type == "random"])$'p.value'))
-# 
-# toPlot.stats.medians <- toPlot %>% 
-#   group_by(sim_type, pathway_base, sample_type) %>% 
-#   summarise(median_value = median(value, na.rm = T))
-# 
-# toPlot.stats$padj <- p.adjust(toPlot.stats$pval, method = "BH")
-# 
-# p.overlaps_single <- ggplot() +
-#   geom_density(data = toPlot, aes(x = value, fill = sample_type), alpha = 0.5) +
-#   facet_grid(pathway_base+sim_type~., scales = "free") +
-#   geom_text(data = toPlot.stats, aes(x=0.5, y = 5, label= paste("p-value=", format(pval, digits=2, scientific=T)))) +
-#   geom_vline(data = toPlot.stats.medians, aes(xintercept = median_value, colour = sample_type), linetype = 2) +
-#   theme_bw() + 
-#   theme(legend.position = c(0.1, 0.5))
-# 
-# p.grid.overlaps <- plot_grid(p.overlaps_single, p.double_overlap, labels = c("A", "B"))
-# 
-# #single random example of pearson
-# set.seed(123)
-# toPlot <- bind_rows(pathway_similarities, pathway_similarities_random.repeats %>% group_by(rep) %>% sample_n(1)) %>% 
-#   filter(sim_type == "pearson")
-# toPlot$sample_type <- factor(toPlot$sample_type, levels = c("signal", "random"))
-# toPlot$sim_type <- as.factor(toPlot$sim_type)
-# 
-# toPlot.stats <- toPlot %>% group_by(sim_type, pathway_base) %>% 
-#   summarise(pval = (wilcox.test(value[sample_type == "signal"], value[sample_type == "random"])$'p.value'))
-# 
-# toPlot.stats.medians <- toPlot %>% 
-#   group_by(sim_type, pathway_base, sample_type) %>% 
-#   summarise(median_value = median(value, na.rm = T))
-# 
-# toPlot.stats$padj <- p.adjust(toPlot.stats$pval, method = "BH")
-# 
-# p.pearson_single <- ggplot() +
-#   geom_density(data = toPlot, aes(x = value, fill = sample_type), alpha = 0.5) +
-#   facet_grid(pathway_base+sim_type~., scales = "free") +
-#   geom_text(data = toPlot.stats, aes(x=0.9, y = 5, label= paste("p-value=", format(pval, digits=2, scientific=T)))) +
-#   geom_vline(data = toPlot.stats.medians, aes(xintercept = median_value, colour = sample_type), linetype = 2) +
-#   theme_bw() + 
-#   theme(legend.position = c(0.1, 0.5))
-# p.grid.pearson <- plot_grid(p.pearson_single, p.double_pearson, labels = c("A", "B"))
-# 
-# 
-# #
-# 
-# pathway_kinases %>% group_by(pathway_base) %>% distinct(pathway) %>% summarise(n = n())
-# 
-# unique(pathway_kinases[pathway_kinases$pathway_base == "kegg",]$pathway)
-# 
-# # all_similarities <- bind_rows(similarities.long.df.all, similarities.long.df.down, similarities.long.df.up, 
-# #                               proteins.FC.f.matrix.cor.long, protein.matrix.mean.cor.long) %>% filter(!is.na(value))
-# # 
-# # pathway_similarities.grouped <- bind_rows(pathway_similarities %>% filter(n >= 2) %>% mutate(n_cut = ">=2"),
-# #                                           pathway_similarities %>% filter(n >= 3) %>% mutate(n_cut = ">=3"),
-# #                                           pathway_similarities %>% filter(n >= 5) %>% mutate(n_cut = ">=5"))
-# # 
-# # set.seed(1234)
-# # random_similarities.grouped <- ddply(pathway_similarities.grouped %>% filter(n_cut == ">=3"), 
-# #       .(pathway_base, sim_type, n_cut), 
-# #       .fun = function(x) {
-# #         #x = pathway_similarities.grouped %>% filter(pathway_base == "kegg", sim_type == "overlap.up", n_cut == ">=3")
-# #         universe = unique(c(x$X1,x$X2))
-# #         ret = all_similarities %>% filter(X1_uniprot %in% universe, 
-# #                                           X2_uniprot %in% universe,
-# #                                           sim_type == unique(x$sim_type)) %>% 
-# #                                     sample_n(1000, replace = T) %>%
-# #                                     mutate(pathway = "none", sample_type = "random")
-# #         return(ret)
-# #       })
-# #   
-# # random_similarities.grouped$sample_type = "random" 
-# # pathway_similarities.grouped.dataset <- bind_rows(pathway_similarities.grouped, random_similarities.grouped)
-# # 
-# # file_name = paste("pathway_similarities.grouped.dataset", fun_name, "RData", sep=".")
-# # file_path = paste(output_dir, file_name, sep="/")
-# # save(pathway_similarities.grouped.dataset, file=file_path)
-# # 
-# # 
-# # 
-# # 
-# # 
-# # toPlot <- pathway_similarities.grouped.dataset %>% filter(sim_type != "pearson_fc",
-# #                                                           sim_type != "overlap.all",
-# #                                                           n_cut == ">=3")
-# # toPlot$sample_type <- factor(toPlot$sample_type, levels = c("signal", "random"))
-# # toPlot$sim_type <- as.factor(toPlot$sim_type)
-# # 
-# # toPlot.stats <- toPlot %>% group_by(sim_type, pathway_base, n_cut) %>% 
-# #   summarise(pval = (wilcox.test(value[sample_type == "signal"], value[sample_type == "random"])$'p.value'))
-# # 
-# # toPlot.stats.medians <- toPlot %>% 
-# #   group_by(sim_type, pathway_base, n_cut, sample_type) %>% 
-# #   summarise(median_value = median(value, na.rm = T))
-# # 
-# # toPlot.stats$padj <- p.adjust(toPlot.stats$pval, method = "BH")
-# # 
-# # ggplot() +
-# #   geom_density(data = toPlot, aes(x = value, fill = sample_type), alpha = 0.5) +
-# #   facet_grid(pathway_base+n_cut~sim_type, scales = "free") +
-# #   geom_text(data = toPlot.stats, aes(x=0.5, y = 5, label= paste("p-value=", format(padj, digits=2, scientific=T)))) +
-# #   geom_vline(data = toPlot.stats.medians, aes(xintercept = median_value, colour = sample_type), linetype = 2) +
-# #   theme_bw() + 
-# #   theme(legend.position = c(0.1, 0.5))
