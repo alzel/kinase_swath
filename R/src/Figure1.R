@@ -482,8 +482,80 @@ p.enzyme_perturbation <- ggplot(toPlot, aes(x = fraction)) +
 
 p.volcano_combined2 <- p.volcano1 + annotation_custom(grob = ggplotGrob(p.enzyme_perturbation), xmin = 0, xmax = 5, ymin = 20 , ymax = 120)
 
-# IRT chromatogram stability ------------------
+# ---- absolute perturbations ------
+load(file = "./R/objects/absolute_dataset._clean_.RData")
+absolute_dataset$isiMM904 <- absolute_dataset$ORF %in% unique(as.character(iMM904$gene))
 
+absolute_dataset.stats <- absolute_dataset %>% 
+  group_by(dataset, isiMM904) %>%
+    summarize(n = n(), 
+              perturbation = sum(abundance)) %>%
+  group_by(dataset) %>%
+    mutate(total_perturbation = sum(perturbation)) %>%
+  group_by(dataset, isiMM904) %>%
+    mutate(perturbation_fr = perturbation/total_perturbation)
+
+absolute_dataset.f <- absolute_dataset %>% filter(dataset == "Kulak")
+
+proteins.FC.f$abundance = absolute_dataset.f$abundance[match(proteins.FC.f$ORF, absolute_dataset.f$ORF)]
+
+measured_enzymes = rownames(protein.matrix[rownames(protein.matrix) %in% unique(as.character(iMM904$gene)),])
+
+WT_abundance = absolute_dataset.f %>% 
+  filter(ORF %in% measured_enzymes) %>% 
+  summarise(measured_enzyme_abundance = sum(abundance, na.rm = T))
+
+abs_changes <- proteins.FC.f %>% 
+  mutate(absolute_change = ifelse(p.value_BH < pval_thr, abundance * (2^logFC), abundance)) %>% 
+  #mutate(absolute_change =  abundance * 2^logFC) %>% 
+  #filter(p.value_BH < pval_thr) %>%
+  group_by(KO) %>%
+  summarise(change = (sum(absolute_change, na.rm = T) - sum(abundance, na.rm=T))/sum(abundance, na.rm=T))
+
+
+abs_changes$label <- as.character(exp_metadata$gene[match(abs_changes$KO, exp_metadata$ORF)])
+
+
+counts <- proteins.FC.f
+counts$sign = ifelse(abs(counts$logFC) >= FC_thr & counts$p.value_BH < pval_thr, 1,0)
+counts$label = orf2name$gene_name[match(counts$KO, orf2name$ORF)]
+
+
+counts.stats <- counts %>%
+  filter(isiMM904) %>% 
+  group_by(label) %>%
+  summarize(n = sum(sign)) %>% 
+  ungroup() %>% 
+  arrange(-n)
+
+counts.stats$label = factor(counts.stats$label, levels = as.character(counts.stats$label))
+
+toPlot <- full_join(counts.stats, abs_changes)
+toPlot$change_percent <- toPlot$change*100
+toPlot <- toPlot %>% arrange(-n)
+toPlot$label = factor(toPlot$label, levels = as.character(toPlot$label))
+
+
+ggplot(toPlot, aes(x=label, y=n)) + 
+  geom_bar(stat="identity", width=.5, color = "lightgrey") +
+  geom_line(data=toPlot, aes(x = label, y = change_percent, group=1)) +
+  geom_text(data=toPlot, 
+            aes(x=label[which.max(change_percent)], 
+                y = change_percent[which.max(change_percent)], 
+                label = round(change_percent[which.max(change_percent)],3))) +
+  geom_text(data=toPlot, 
+            aes(x=label[which.min(change_percent)], 
+                y = change_percent[which.min(change_percent)], 
+                label = round(change_percent[which.min(change_percent)],3))) +
+  ylab("Number of perturbed metabolic enzymes") +
+  xlab("Kinase mutant") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, face = "italic"), aspect.ratio = 5/8)
+
+
+
+
+# IRT chromatogram stability ------------------
 
 load("./R/objects/dataset_irt_openswath._clean_.RData")
 toPlot <- dataset_irt_openswath %>% 
@@ -1345,6 +1417,17 @@ p.growth <- ggplot(toPlot, aes(x = n, y = max.slope )) +
 
 plots.list <- lappend(plots.list, p.growth)
 
+### absolute proteins 
+
+
+absolute_data.raw$isiMM904 = absolute_data.raw$ORF %in% unique(as.character(iMM904$gene))
+
+sum(absolute_data.raw[absolute_data.raw$isiMM904,]$Protein.Molecules.Cell)/sum(absolute_data.raw$Protein.Molecules.Cell)
+
+
+
+
+
 ## ---- stats of kinase perturbation, quantified proteins etc ----
 
 load("./R/objects/proteins.matrix.sva.0.5.1.RData")
@@ -1513,10 +1596,14 @@ stats_tmp <- data.frame(stats =  rownames(tmp),
 stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
 stats_table <- rbind(stats_table, stats_tmp)
 
+
+
+
 library("gridExtra")
 p <- tableGrob(stats_table)
 p$landscape = T
 plots.list = lappend(plots.list, p)
+
 
 
 ## ----- figure version 1 --------
