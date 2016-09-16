@@ -535,25 +535,25 @@ toPlot$change_percent <- toPlot$change*100
 toPlot <- toPlot %>% arrange(-n)
 toPlot$label = factor(toPlot$label, levels = as.character(toPlot$label))
 
-
-ggplot(toPlot, aes(x=label, y=n)) + 
+p.absolute <- ggplot(toPlot, aes(x=label, y=n)) + 
   geom_bar(stat="identity", width=.5, color = "lightgrey") +
   geom_line(data=toPlot, aes(x = label, y = change_percent, group=1)) +
-  geom_text(data=toPlot, 
-            aes(x=label[which.max(change_percent)], 
-                y = change_percent[which.max(change_percent)], 
-                label = round(change_percent[which.max(change_percent)],3))) +
-  geom_text(data=toPlot, 
-            aes(x=label[which.min(change_percent)], 
-                y = change_percent[which.min(change_percent)], 
-                label = round(change_percent[which.min(change_percent)],3))) +
+  geom_text(data=data.frame(), 
+            aes(x=toPlot$label[which.max(toPlot$change_percent)], 
+                y = toPlot$change_percent[which.max(toPlot$change_percent)], 
+                label = round(toPlot$change_percent[which.max(toPlot$change_percent)],3))) +
+  geom_text(data=data.frame(), 
+            aes(x=toPlot$label[which.min(toPlot$change_percent)], 
+                y = toPlot$change_percent[which.min(toPlot$change_percent)], 
+                label = round(toPlot$change_percent[which.min(toPlot$change_percent)],3))) +
   ylab("Number of perturbed metabolic enzymes") +
   xlab("Kinase mutant") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, face = "italic"), aspect.ratio = 5/8)
 
 
-
+p.absolute$toScale <- T
+plots.list <- lappend(plots.list, p.absolute)
 
 # IRT chromatogram stability ------------------
 
@@ -1260,11 +1260,11 @@ paths.long.stats = paths.long %>% group_by(KO) %>% summarise( mean.min = mean(ye
 
 proteins.FC.f.stats$gene_name = orf2name$gene_name[match(proteins.FC.f.stats$KO, orf2name$ORF)]
 
-proteins.FC.f.stats$phys.degree = degree(G.phys)[match(proteins.FC.f.stats$KO, names(degree(G.phys)))]
-proteins.FC.f.stats$betweenness = betweenness(GRAPH)[match(proteins.FC.f.stats$KO, names(degree(GRAPH)))]
-proteins.FC.f.stats$degree = degree(GRAPH)[match(proteins.FC.f.stats$KO, names(degree(GRAPH)))]
+proteins.FC.f.stats$phys.degree = igraph::degree(G.phys)[match(proteins.FC.f.stats$KO, names(igraph::degree(G.phys)))]
+proteins.FC.f.stats$betweenness = igraph::betweenness(GRAPH)[match(proteins.FC.f.stats$KO, names(igraph::degree(GRAPH)))]
+proteins.FC.f.stats$degree = igraph::degree(GRAPH)[match(proteins.FC.f.stats$KO, names(igraph::degree(GRAPH)))]
 #proteins.FC.f.stats$gene.all.degree = degree(G.gene.all)[match(proteins.FC.f.stats$KO, names(degree(G.gene.all)))]
-proteins.FC.f.stats$gene.degree = degree(G.gene)[match(proteins.FC.f.stats$KO, names(degree(G.gene)))]
+proteins.FC.f.stats$gene.degree = igraph::degree(G.gene)[match(proteins.FC.f.stats$KO, names(igraph::degree(G.gene)))]
 proteins.FC.f.stats$min.paths = min.paths[match(proteins.FC.f.stats$KO, names(min.paths))]
 proteins.FC.f.stats$min.paths.comb = ifelse(min.paths[match(proteins.FC.f.stats$KO, names(min.paths))] <= 1, 0, 1)
 
@@ -1343,7 +1343,7 @@ p.dist_degree <- ggplot(toPlot , aes(x=factor(min.paths.comb), y=value)) +
 
 
 toPlot <- proteins.FC.f.stats.long %>% 
-  filter(variable == "betweenness" | variable == "degree"| variable == "changes") %>%
+  filter(variable %in% c("betweenness", "degree",  "changes")) %>% 
   dcast(formula = "KO+gene_name~variable", value.var = "value") %>%
   melt(id.vars = c("KO", "gene_name", "changes"))
 
@@ -1551,7 +1551,7 @@ selected <- unique(as.character(exp_metadata$sample_name[exp_metadata$type == "K
 
 proteins.detected <- dataset.raw.f.good %>% filter(R.Label %in% selected) %>%
   ungroup() %>%
-  select(ProteinName, R.Label, EG.Qvalue) %>%
+  dplyr::select(ProteinName, R.Label, EG.Qvalue) %>%
   gather(stats, value, -R.Label, -EG.Qvalue) %>%
   group_by(stats, value, R.Label) %>% 
     summarise(min.EG.Qvalue = min(EG.Qvalue, na.rm=T)) %>%
