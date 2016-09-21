@@ -587,6 +587,69 @@ create.Sentinels_dataset <- function() {
   save(sentinels.data,file=file_path)  
 }
 
+createAbsoluteProteins = function() {
+  absolute_data.raw <- read.xlsx2("./data/2016-09-05/nature02046-s2.xls", 1) 
+  absolute_data.raw <- absolute_data.raw[which(grepl(pattern = "[0-9]+\\.?[0-9]+", x = absolute_data.raw$Protein.Molecules.Cell)),] 
+  absolute_data.raw$Protein.Molecules.Cell <- as.numeric(as.character(absolute_data.raw$Protein.Molecules.Cell))
+  dataset1 <- absolute_data.raw %>% 
+    dplyr::select(ORF, Protein.Molecules.Cell) %>% 
+    mutate(dataset = "Ghaemmaghami") %>% 
+    rename(abundance = Protein.Molecules.Cell)
+ 
+  absolute_data.raw <- read.xlsx2("./data/2016-09-05/nmeth.2834-S2.xlsx", sheetName = "S.cerevisiae") 
+  
+  absolute_data.raw <- absolute_data.raw[which(grepl(pattern = "[0-9]+\\.?[0-9]+", x = absolute_data.raw$Copy.number)),] 
+  absolute_data.raw$Copy.number <- as.numeric(as.character(absolute_data.raw$Copy.number))
+  
+  dataset2 <- absolute_data.raw %>% 
+    dplyr::select(ORF, Copy.number) %>% 
+    mutate(dataset = "Kulak") %>% 
+    rename(abundance = Copy.number)
+  dataset <- bind_rows(dataset1, dataset2)
+  absolute_dataset <- droplevels(dataset[dataset$ORF != "",])
+  
+  file_name = paste("absolute_dataset", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(absolute_dataset,file=file_path)  
+  
+}
+
+
+
+
+create.kinases_classes_new = function() {
+  yeastkinome_classes <- read.delim("~/projects/kinase_swath/data/2016-09-14/yeastkinase.txt")
+  yeastkinome_classes$ACC. = NULL
+  
+  load("./R/objects/gene.annotations._load_.RData")
+  
+  accession2orf <- gene.annotations %>% filter(V2 == "GenBank/EMBL/DDBJ") %>% dplyr::select(V1, V4) %>% droplevels()
+  
+  yeastkinome_classes$ORF = as.character(accession2orf$V4[match(paste(yeastkinome_classes$ACC, ".1", sep=""), accession2orf$V1)])
+  #yeastkinome_classes[which(is.na(yeastkinome_classes$ORF)),1]
+  
+  yeastkinome_classes[yeastkinome_classes$Sequence == "KIN82",]$ORF = "YCR091W"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "SLN1",]$ORF = "YIL147C"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "YIL042C",]$ORF = "YIL042C"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "YCL024W",]$ORF = "YCL024W"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "YCK3",]$ORF = "YER123W"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "YPL109C",]$ORF = "YPL109C"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "CKA1",]$ORF = "YIL035C"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "YIL095W",]$ORF = "YIL095W"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "SSK22",]$ORF = "YCR073C"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "YIL113w",]$ORF = "YIL113W"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "YVH1",]$ORF = "YIR026C"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "TEP1",]$ORF = "YNL128W"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "YCR079W",]$ORF = "YCR079W"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "INP51",]$ORF = "YIL002C"
+  yeastkinome_classes[yeastkinome_classes$Sequence == "HCM1",]$ORF = "YCR065W"
+  
+  file_name = paste("yeastkinome_classes", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(yeastkinome_classes,file=file_path)  
+}
+
+
 
 
 main = function() {
@@ -605,6 +668,8 @@ main = function() {
   create.sentinel_list()
   create.sentinelSRM_list()
   create.Sentinels_dataset()
+  createAbsoluteProteins()
+  create.kinases_classes_new()
 }
 
 
