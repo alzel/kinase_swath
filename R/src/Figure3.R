@@ -356,7 +356,7 @@ node_sizes <- data.frame(node = V(net)$name,
 my_layout <-  layout.k_partite(net)
 new_layout <- sweep(my_layout, MARGIN = 2, STATS = apply(my_layout,2, max), FUN = "/")
 
-B = network(get.adjacency(net), directed = TRUE)
+B = network(igraph::get.adjacency(net), directed = TRUE)
 
 B %v% "x" <- new_layout[,1]
 B %v% "y" <- new_layout[,2]
@@ -506,7 +506,7 @@ p.met.untransformed = ggplot(toPlot, aes(x = predictions.untransformed, y = y.un
   panel_border() +
   theme(aspect.ratio = 1)
 
-file_name = paste(input_path,x[[4]], sep="/") 
+#file_name = paste(input_path,x[[4]], sep="/") 
 my_models = get(load(file_name))
 models = my_models$models
 
@@ -827,7 +827,7 @@ p.energy = ggplot(prediction.intervals)+
   theme(aspect.ratio = 1)
 
 # -- tRNAs ------
-
+yeast.model = iMM904
 AA.linear_models = all_linear_models %>% ungroup() %>% 
   filter(metabolite %in% metabolite.order$metabolite, 
          degree== 1, ismetIncluded == 0, isImputed == 0,
@@ -906,7 +906,22 @@ coverage = ddply(all_final_models.aic, .(dataset, metabolite),
 
 
 coverage.stats = coverage %>% group_by(metabolite, dataset, type) %>% summarise(coverage = sum(isMeasured)/length(isMeasured))
+
 coverage.stats.wide = dcast(formula=metabolite+dataset~type, value.var="coverage", data=coverage.stats)
+
+
+## -- R2 is independent of coverage ----
+toPlot = merge(models.filtered %>% filter(degree == 1), coverage.stats.wide)
+res = cor(toPlot$adj.r.squared, toPlot$gene)
+res = data.frame(res)
+p.coverage_r2 = ggplot(toPlot, aes(x=gene, y=adj.r.squared)) +
+  geom_text(data = res, aes(x=0.25, y=0.5, label=paste("rho =", round(res,3)))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = F) +
+  xlab("Coverage of measured metabolizing enzymes, x100%") +
+  ylab("Proportion of metabolite concentration variance explained by proteome data, adjusted R2")
+
+plots.list <- lappend(plots.list, p.coverage_r2)
 
 
 brenda <- read.delim("./data/2015-10-07/brenda.txt")
@@ -985,6 +1000,8 @@ names(tRNA_predictors) <- c("metabolite", "gene_name", "ec")
   
 
 # checking for saturation
+
+View(metabolites.long)
 metabolites.long = metabolites.long %>% mutate(ratio = concentration/kmValue)
 toPlot = metabolites.long %>% filter(inNetwork == T)
 points = metabolites.long %>% filter(isPredictor == T)
@@ -1031,37 +1048,51 @@ toPlot = metabolites.long %>% filter(inNetwork == T, isPredictor == T)
 #toPlot = metabolites.long
 stats = data.frame(label_text = c(median(toPlot$ratio[toPlot$dataset == "AA"], na.rm=T)/median(toPlot$ratio[toPlot$dataset == "TCA"], na.rm=T),
                                   wilcox.test(log(toPlot$ratio[toPlot$dataset == "AA"]), log(toPlot$ratio[toPlot$dataset == "TCA"]))$p.value,
-                                  sum(log(toPlot$ratio) > 0, na.rm=T)/length(toPlot$ratio)), #above Km
+                                  sum(log(toPlot$ratio,2) > 0, na.rm=T)/length(toPlot$ratio)), #associated enzymes above Km
                    
                    x = -7,
                    y = c(0.15, 0.13, 0.1))
 
 toPlot$dataset = factor(toPlot$dataset)
 
+super_saturated <- toPlot %>% group_by(label) %>%
+  summarise(super_saturated = sum(log(ratio,10)>1)) 
+
+sum(super_saturated$super_saturated>0)/length(unique(super_saturated$label))
+
+
 p.aatca <- ggplot() +  
-  geom_density(data=toPlot, aes(x=log(ratio), fill=dataset), alpha = 0.5) +
+  geom_density(data=toPlot, aes(x=log(ratio,2), fill=dataset), alpha = 0.5) +
   geom_text(data=stats, aes(x=x+2, y=y, label = label_text)) +
   xlab(expression(paste("Measured intracellular concentraions divided by ", K[M], " of predictor enzymes, ln(ratio)"))) +
   geom_vline(xintercept = 0) +
   theme_bw() +
   theme( legend.position = c(0.7,0.7))
+# 
+# ggplot(toPlot, aes(x = concentration)) +
+#   geom_density() +
+#   facet_wrap(~label, scales = "free") +
+#   geom_point(data = toPlot, aes(x = kmValue, y=0.1))
+
 # ### ratio whether it is predictor of not
-# a = (metabolites.long %>% filter(inNetwork == T, isPredictor == F) %>% dplyr::select(ratio))$ratio
-# b = (metabolites.long %>% filter(inNetwork == T, isPredictor == T) %>% dplyr::select(ratio))$ratio
+a = (metabolites.long %>% filter(inNetwork == T, isPredictor == F) %>% dplyr::select(ratio))$ratio
+b = (metabolites.long %>% filter(inNetwork == T, isPredictor == T) %>% dplyr::select(ratio))$ratio
 # 
-# toPlot = metabolites.long %>% filter(inNetwork == T)
-# stats = data.frame(label_text = c(median(b,na.rm=T)/median(a, na.rm=T),
-#                                   wilcox.test(b,a)$p.value),
-#                    x = 1,
-#                    y = c(5,4))
-# 
-# p = ggplot(toPlot, aes(x = isPredictor, y = log(ratio))) + 
-#   geom_boxplot(width=0.2)+
-#   #geom_violin(alpha=0)+
-#   geom_text(data=stats, aes(x=x, y=y, label = label_text)) +
-#   panel_border() +
-#   theme(aspect.ratio = 8/3)
-# p
+toPlot = metabolites.long %>% filter(inNetwork == T)
+stats = data.frame(label_text = c(median(b,na.rm=T)/median(a, na.rm=T),
+                                   wilcox.test(b,a)$p.value),
+                    x = 1,
+                    y = c(5,4))
+ 
+p.predictors = ggplot(toPlot, aes(x = isPredictor, y = log(ratio))) + 
+ geom_boxplot(width=0.2)+
+ geom_violin(alpha=0)+
+ geom_text(data=stats, aes(x=x, y=y, label = label_text)) +
+ panel_border() +
+ theme(aspect.ratio = 8/3)
+
+
+
 #geom_point(data=toPlot, aes(x=jitter(as.numeric(isPredictor)) + 1 , y = log(ratio)), alpha = 0.1)
 
 
@@ -1525,6 +1556,7 @@ p.overlaps <-ggplot(toPlot, aes(x=value, fill=degree)) +
 total <- length(unique(dataset.genes$genes))
 toPlot <- dataset.genes %>% 
   group_by(metabolite, degree) %>%
+  distinct(genes) %>%
   summarize(fraction = n()/total)
 
 p.network_overlaps <- ggplot(toPlot, aes(x=fraction, fill=degree)) +
@@ -1533,8 +1565,15 @@ p.network_overlaps <- ggplot(toPlot, aes(x=fraction, fill=degree)) +
   theme_bw() +
   theme(legend.position = c(0.5,0.5),
         panel.grid = element_blank())
-  
-  
+
+# counting measured gene neighbours
+metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
+metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
+dataset.genes %>% filter(degree == 1, metabolite %in% metabolite.order$metabolite) %>% dplyr::select(genes) %>% distinct() %>% summarise(n())
+
+
+
+
 
 # ---- predictor concentrations ------------
 load("../Michael_AA/data/2016-03-30/01_Workspace.Rdata")
@@ -2309,6 +2348,7 @@ p.cor <- ggplot(toPlot, aes(x = cor)) +
   geom_vline(data = toPlot.stats, aes(xintercept = median.cor), col="red", linetype = 3) +
   facet_wrap(~metabolite_name, scales="free") +
   xlab("Pearson correlation between enzyme and metabolite levels")
+p.cor$toScale = T
 plots.list = lappend(plots.list, p.cor)
 
 
@@ -2358,6 +2398,10 @@ plot_figure3_v2 <- function() {
   print(p.gln1, vp = viewport(layout.pos.row = 16:30, layout.pos.col = 31:46))
   print(p.trna_separate, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 31:46)) #example heatmap of glutamine
   print(p.aatca, vp = viewport(layout.pos.row = 31:45, layout.pos.col = 46:60)) #same
+  print(p.predictors, vp = viewport(layout.pos.row = 45:70, layout.pos.col = 46:60)) #same
+  
+    
+  
 }
 
 file_name = "Figure3_v02_scripted.pdf"
