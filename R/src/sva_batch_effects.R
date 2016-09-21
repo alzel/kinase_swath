@@ -73,6 +73,7 @@ annot = rbind(annot,data.frame(x_var, y_var, type="after"))
 scores = rbind(scores, data.frame(sample.id = rownames(scores), pca$x[,1:5], type = "after"))
 scores$batch = factor(pheno$batch.exp.n[match(scores$sample.id, pheno$sample_name)])
 scores.mix = scores[grepl(pattern="mix", ignore.case=T, x=rownames(scores)),]
+scores.mix$type = factor(scores.mix$type, levels=c("before", "after"))
 scores$type = factor(scores$type, levels=c("before", "after"))
 
 annot$text = paste(annot$x_var, annot$y_var)
@@ -88,7 +89,8 @@ p = ggplot(scores, aes(x=PC1, y=PC2)) +
   facet_wrap(~type, scales="fixed") + 
   theme_bw() +
   theme(aspect.ratio = 1, 
-        axis.text = element_text(size = rel(1.5)))
+        axis.text = element_text(size = rel(1)),
+        legend.position = "none")
 
 plots.list <- lappend(plots.list, p)
 
@@ -121,7 +123,7 @@ toPlot.wt  = toPlot[toPlot$R.Label %in% exp_metadata$sample_name[exp_metadata$OR
 
 library(scales)
 p = ggplot(toPlot, aes(x=aquisition_date.str, y=exp(signal), col=batch)) + 
-  geom_point(size=3) +
+  geom_point(size=2) +
   geom_point(data=toPlot.mix,aes(x=aquisition_date.str, y=exp(signal)),col="red") + #MIX
   geom_point(data=toPlot.wt, aes(x=aquisition_date.str, y=exp(signal)),col="blue") + #WT   
   scale_x_date(breaks = date_breaks("1 week"), minor_breaks = date_breaks("1 day"), labels=date_format("%m-%d"))+
