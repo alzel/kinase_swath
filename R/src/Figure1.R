@@ -926,10 +926,26 @@ plots.list <- lappend(plots.list, p.batch)
 ## ---- cophenetic correlation -----------
 library(dendextend)
 load("./R/objects/dataPPP_AA.imputed.create_datasets.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.RData")
+
+my_means <- function(proteins.matrix) {
+  
+  proteins.long = melt(proteins.matrix, id.vars="rownames")
+  names(proteins.long) = c("EG.StrippedSequence", "R.Label", "signal")
+  proteins.long$ORF = exp_metadata$ORF[match(proteins.long$R.Label, exp_metadata$sample_name)]
+  proteins.long.mean = tbl_df(proteins.long) %>% group_by(EG.StrippedSequence, ORF) %>% summarize(mean = mean(signal))
+  proteins.mean.df = dcast(proteins.long.mean, formula=EG.StrippedSequence~ORF, value.var="mean")
+  
+  proteins.mean.matrix = as.matrix(proteins.mean.df[,-1])
+  rownames(proteins.mean.matrix) = as.matrix(proteins.mean.df$EG.StrippedSequence)
+  return(proteins.mean.matrix)  
+}
 
 
-left_data <- scale(dataPPP_AA.imputed$proteins.log.quant)
-right_data <- scale(dataPPP_AA.imputed$metabolites)
+proteins.mean <- t(my_means(proteins.matrix = proteins.matrix.sva.0.5.1))
+
+left_data <- scale(proteins.mean[rownames(dataPPP_AA.imputed$metabolites), measured_enzymes])
+right_data <- scale(log(dataPPP_AA.imputed$metabolites))
 
 rownames(left_data) <- exp_metadata$gene[match(rownames(left_data), exp_metadata$ORF)]
 rownames(right_data) <- exp_metadata$gene[match(rownames(right_data), exp_metadata$ORF)]
@@ -952,6 +968,48 @@ dev.off()
 p = recordPlot()
 plots.list = lappend(plots.list, p)
 
+
+## correlation of components ----
+all_measured_enzymes <- as.vector((proteins.FC.f %>% filter(isiMM904 ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
+
+pca_proteome <- prcomp(left_data[,all_measured_enzymes])
+pca_metabolome <- prcomp(right_data)
+
+tmp.proteins <-  pca_proteome$x[,c(1:4)]
+tmp.metabolites <-  pca_metabolome$x[,c(1:4)]
+colnames(tmp.proteins) <- paste(colnames(tmp.proteins), ".proteome", sep = "")
+colnames(tmp.metabolites) <- paste(colnames(tmp.metabolites), ".metabolome", sep = "")
+
+
+
+tmp.metabolites.df <- as.data.frame(tmp.metabolites)
+tmp.proteins.df <-  as.data.frame(tmp.proteins)
+
+tmp.metabolites.df$id <- rownames(tmp.metabolites)
+tmp.proteins.df$id <- rownames(tmp.proteins)
+
+toPlot <- full_join(melt(tmp.proteins.df), melt(tmp.metabolites.df), by = "id") 
+
+toPlot.stats <- toPlot %>% 
+  group_by(variable.x, variable.y) %>%
+  summarise(cor = (cor.test(value.x, value.y))$estimate,
+            pval = (cor.test(value.x, value.y))$p.value,
+            x = 0.5*min(value.x, na.rm = T),
+            y = 0.75*max(value.y, na.rm = T))
+
+tmp = cor.test(1:10, 2:11)
+
+p.components <- ggplot(toPlot, aes(x = value.x, y = value.y)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = F) +
+  geom_text(data = toPlot.stats, 
+            aes(x=x, y=y, label = paste("r = ", 
+                                        format(cor, digits = 2, scientific = T),"\n","p = ", 
+                                        format(pval, digits = 2, scientific = T), sep = ""))) +
+  facet_wrap(variable.x ~ variable.y, scales = "free") +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+plots.list = lappend(plots.list, p.components)
 
 ### ---- sentinels ------
 #load("./R/objects/sentinels.proteins.matrix.quant.combat.FC.RData")
