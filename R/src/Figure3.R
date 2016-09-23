@@ -261,13 +261,13 @@ toPlot = all_linear_models %>% ungroup() %>%
 toPlot = droplevels(toPlot)
 toPlot$metabolite = factor(toPlot$metabolite, levels=as.character(metabolite.order$metabolite))
 
-toPlot$met_name = metabolite2iMM904$official_name[match(toPlot$metabolite, metabolite2iMM904$id)]
+toPlot$met_name = metabolite.order$met_name[match(toPlot$metabolite, metabolite.order$metabolite)]
 toPlot$met_name = factor(toPlot$met_name, levels=rev(as.character(metabolite.order$met_name)))
 toPlot$pathway = metabolite.order$pathway[match(toPlot$metabolite, metabolite.order$metabolite)]
 toPlot$pathway = factor(toPlot$pathway, levels = as.character(metabolite.order$pathway))
+aic.models <- toPlot
 
 library(ggthemes)
-
 
 p.all_met = ggplot(toPlot, aes(x = met_name, color=pathway)) +
   #geom_point(data=toPlot, aes( y = adj.r.squared), colour = "black", size=2) +
@@ -614,88 +614,7 @@ p.gln1 <- ggplot(toPlot, aes(x =x , y = y) ) +
   theme(aspect.ratio = 1)
 plots.list <- lappend(plots.list, p.gln1)
 
-# # --- example small graph ---- 
-# 
-# measured.proteins = row.names(proteins.matrix.combat.quant)
-# yeast.model = iMM904
-# yeast.model = yeast.model[grep("t", yeast.model$reaction, invert=T),] #removing all tranporters
-# yeast.model = yeast.model[yeast.model$gene %in% measured.proteins, ]
-# 
-# yeast.model = yeast.model %>% group_by(metabolite, gene) %>% dplyr::mutate( from = ifelse(side == "substrate", as.character(metabolite), as.character(gene)),
-#                                                                             to   = ifelse(side == "substrate", as.character(gene), as.character(metabolite)),
-#                                                                             from.ec = ifelse(side == "substrate", as.character(metabolite), as.character(ec_number)),
-#                                                                             to.ec   = ifelse(side == "substrate", as.character(ec_number), as.character(metabolite)))
-# 
-# example_metabolites = c("glutamine", "glutamate")
-# 
-# 
-# 
-# for (i in 1:length(example_metabolites)) {
-#   
-#   met = example_metabolites[i]
-#   
-#   current_nodes = as.character(metabolite2iMM904$model_name[metabolite2iMM904$id %in% met])
-#   edgelist = data.frame(yeast.model %>% ungroup() %>% filter(metabolite %in% current_nodes))
-#   tmp.edge = data.frame(edgelist)
-#   
-#   model.edges = tmp.edge
-#   selected.model = all_linear_models %>% ungroup() %>% filter(degree == 1, ismetIncluded == 0, the_super_best == T, metabolite %in% met)
-#   selected.model$metabolite_name = as.character(metabolite2iMM904$model_name[match(selected.model$metabolite, metabolite2iMM904$id)])
-#   
-#   selected.model <- selected.model %>% dplyr::select(metabolite_name, X1, weight)
-#   names(selected.model) = c("metabolite_name", "variables", "weights")
-#   
-#   model.edges = merge(model.edges, selected.model, all.x = T,
-#                       by.x = c("metabolite","gene"),
-#                       by.y = c("metabolite_name", "variables"))
-#   
-#   names(model.edges)[length(names(model.edges))] = "weights"
-#   
-#   model.edges = model.edges %>% arrange(gene, ec_number) %>% 
-#     group_by(metabolite, gene) %>% 
-#     mutate(isCorrect = ifelse(side == "substrate" && weights < 0 && directionality == "->", T, 
-#                               ifelse(side == "product" && weights > 0 && directionality == "->", T, 
-#                                      ifelse(directionality == "<->", T, F))))
-#   
-#   
-#   model.edges = model.edges %>% arrange(gene, ec_number) 
-#   model.edges$gene_name = orf2name$gene_name[match(model.edges$gene, orf2name$ORF)]
-#   
-#   
-#   graph.edges = unique(model.edges[,c("from", "to", "reaction", "ec_number", "gene", "directionality", "weights", "isCorrect", "gene_name")])
-#   
-#   graph.edges$abs_weight= abs(graph.edges$weights)
-#   graph.edges$abs_weight[graph.edges$abs_weight >= 1] = 1
-#   graph.edges$effect = ifelse(graph.edges$weights > 0, 1, 0)
-#   graph.edges$effect.label = cut(abs(graph.edges$abs_weight), breaks=3, labels=c("low", "medium", "strong"))
-#   
-#   
-#   B <- graph.data.frame(graph.edges, directed=T)
-#   #B = as.directed(B, mode = "arbitrary")
-#   
-#   V(B)$type <- V(B)$name %in% unique(yeast.model$metabolite)
-#   
-#   name_idx = na.omit(match(V(B)$name, orf2name$ORF))
-#   B_idx = which(!is.na(match(V(B)$name, orf2name$ORF)))
-#   V(B)$label = 1:length(V(B)$name)
-#   V(B)$label[B_idx] = as.character(orf2name$gene_name[name_idx])
-#   
-#   name_idx = na.omit(match(V(B)$name, metabolite2iMM904$model_name))
-#   B_idx = which(!is.na(match(V(B)$name, metabolite2iMM904$model_name)))
-#   V(B)$label[B_idx] = as.character(metabolite2iMM904$official_name[name_idx])
-#   
-#   V(B)$model = ifelse(V(B)$name %in% as.character(selected.model$variables), 1, 0)
-#   
-#   name.tmp = paste(met, collapse = "_")
-#   file_name = paste(name.tmp, fun_name, "graphml", sep=".")
-#   file_path = paste(output_dir, file_name, sep="/")
-# 
-#   write.graph(B, file=file_path, format="graphml")
-# }
-
 # -- Energy metabolite example ---------------
-
-# glutamate example ------------------------
 
 met = c("ATP", "ADP", "AMP")
 
@@ -919,7 +838,8 @@ p.coverage_r2 = ggplot(toPlot, aes(x=gene, y=adj.r.squared)) +
   geom_point() +
   geom_smooth(method = "lm", se = F) +
   xlab("Coverage of measured metabolizing enzymes, x100%") +
-  ylab("Proportion of metabolite concentration variance explained by proteome data, adjusted R2")
+  ylab("Proportion of metabolite concentration variance explained by proteome data, adjusted R2") +
+  theme(aspect.ratio = 1)
 
 plots.list <- lappend(plots.list, p.coverage_r2)
 
@@ -1001,7 +921,7 @@ names(tRNA_predictors) <- c("metabolite", "gene_name", "ec")
 
 # checking for saturation
 
-View(metabolites.long)
+
 metabolites.long = metabolites.long %>% mutate(ratio = concentration/kmValue)
 toPlot = metabolites.long %>% filter(inNetwork == T)
 points = metabolites.long %>% filter(isPredictor == T)
@@ -1120,7 +1040,7 @@ metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pat
 toPlot <- metabolites.models.long %>% filter(metabolite %in% metabolite.order$metabolite)
 
 toPlot$metabolite = factor(toPlot$metabolite, levels=as.character(metabolite.order$metabolite))
-toPlot$met_name = metabolite2iMM904$official_name[match(toPlot$metabolite, metabolite2iMM904$id)]
+toPlot$met_name = metabolite.order$met_name[match(toPlot$metabolite, metabolite.order$metabolite)]
 toPlot$met_name = factor(toPlot$met_name, levels=as.character(metabolite.order$met_name))
 toPlot$pathway = metabolite.order$pathway[match(toPlot$metabolite, metabolite.order$metabolite)]
 toPlot$pathway = factor(toPlot$pathway, levels = as.character(metabolite.order$pathway))
@@ -1174,10 +1094,29 @@ p.cv <- ggplot(toPlot, aes(x = met_name, y = Rsquared, fill=degree)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = c(0.2, 0.7)) +
   background_grid(major = "y", minor = "y") +
   panel_border() 
-
 mean(toPlot$Rsquared)
 table(toPlot$model)
 
+setdiff(p.cv$data$met_name, aic.models$met_name)
+
+toPlot$Rsquared <- round(toPlot$Rsquared,2)
+toPlot$RMSE <- round(toPlot$RMSE,2)
+toPlot$preprocessing <- NULL
+toPlot$metabolite <- NULL
+
+degree2radius = data.frame(degree = c(1,3,5),
+                           radius = c(1,2,3))
+
+normalization = data.frame(normalization = c("log", "log.quant", "bc"),
+                           label = c("log", "log Quantile", "Box-Cox"))
+toPlot$radius <- degree2radius$radius[match(toPlot$degree, degree2radius$degree)]
+toPlot$degree <- NULL
+toPlot$normalization <- normalization$label[match(toPlot$normalization, normalization$normalization)]
+
+names(toPlot) <- c("Algorithm", "RMSE", "RsquaredCV", "Data transformation", "Dataset", "Metabolite", "Pathway", "Network radius")
+p <- tableGrob(toPlot)
+p$toScale <- T
+plots.list = lappend(plots.list, p)
 
 # ---- networks part ------
 

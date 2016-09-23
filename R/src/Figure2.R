@@ -323,13 +323,14 @@ p.heatmap <- ggplot(toPlot) +
         aspect.ratio = 1, legend.position = c(0.2, 0.8) ) +
   labs(x="", y = "")
 
+toPlot %>% ungroup() %>% summarise( n = sum(abs(value)<0.5)/n())
+toPlot %>% ungroup() %>% filter( x.name == "KSS1" | x.name == "HOG1", y.name == "KSS1" | y.name == "HOG1" )
+toPlot %>% arrange(value)
+
 toPlot <- FC.f.metabolic.stats %>% 
   dplyr::select(KO.gene, n_pos, n_neg) %>% as.data.frame()%>%
   melt(id.vars = "KO.gene") 
 toPlot$KO.gene <- factor(toPlot$KO.gene, levels = rownames(d.matrix.all)) 
-
-toPlot %>% ungroup() %>% summarise( n = sum(abs(value)<0.5)/n())
-toPlot %>% ungroup() %>% filter( x.name == "KSS1" | x.name == "HOG1", y.name == "KSS1" | y.name == "HOG1" )
 
 
 
@@ -1284,7 +1285,7 @@ lapply(seq_along(plots.list) ,
                            plot = p, width = 210 , height = 297, units = "mm", scale = scale)
            
            ggplot2::ggsave(filename = paste(file_path, x , "png", sep = "."), device = NULL,
-                           plot = p, width = 210 , height = 297, dpi = 150, units = "mm", scale = scale)
+                           plot = p, width = 210, height = 297, dpi = 150, units = "mm", scale = scale)
            
          }, error = function(e) {
            message(paste("Plot", "x", "sucks!" ))
