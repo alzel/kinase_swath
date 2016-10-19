@@ -1514,8 +1514,9 @@ dataset.genes %>% filter(degree == 1, metabolite %in% metabolite.order$metabolit
 
 
 
-# ---- predictor concentrations ------------
+# ---- aa concentrations in predictor mutants ------------
 load("../Michael_AA/data/2016-03-30/01_Workspace.Rdata")
+load("../kinase_swath/data/2016-10-18/01_Workspace_adjusted.Rdata")
 load("./R/objects/all_final_models.importance.models_summary2.RData")
 
 metabolites.models.long <- all_final_models %>% 
@@ -1551,7 +1552,7 @@ dataset.predictors <- left_join(dataset.genes, metabolite.predictors) %>%
   group_by(metabolite, degree) %>%
   filter(sum(is.Predictor)>0)
 
-data.long <- tbl_df(melt(data, id.vars = c("ORF", "gene")))
+data.long <- tbl_df(melt(data.intra, id.vars = c("ORF", "gene")))
 dataset.predictors <- left_join(dataset.predictors, data.long, by = c("metabolite" = "variable", "gene" = "ORF") ) %>% filter(!is.na(value))
 
 
@@ -1567,12 +1568,14 @@ dataset.predictors <- left_join(dataset.genes, metabolite.predictors) %>%
 
 bg <- left_join(dataset.genes %>% filter(!(gene %in% metabolite.predictors$gene)), metabolite.predictors) %>% 
   mutate(is.Predictor = 0)
-bg <- bg %>% group_by(metabolite, gene) %>% distinct()
+bg <- bg %>% group_by(metabolite, gene) %>% distinct(.keep_all = T)
 
 dataset.predictors <- bind_rows(dataset.predictors, bg)           
 #dataset.predictors <- bind_rows(dataset.predictors %>% filter(n_gene <10), bg) 
 
-data.long <- tbl_df(melt(data, id.vars = c("ORF", "gene")))
+#data.long <- tbl_df(melt(data, id.vars = c("ORF", "gene")))
+
+data.long <- tbl_df(melt(data.intra, id.vars = c("ORF", "gene")))
 dataset.predictors <- left_join(dataset.predictors, data.long, by = c("metabolite" = "variable", "gene" = "ORF") ) %>% filter(!is.na(value))
 
 
@@ -1587,13 +1590,14 @@ my.cells = 3.2 * 10^7 * 1.5*5 # median of spectrophotometre data
 #different dilution used fot AA protocol
 ex.vol = 200*1e-6
 
-toPlot$value = toPlot$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
+#toPlot$value = toPlot$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
 
 
 
 toPlot.stats <- ddply(toPlot, .(metabolite),
                       .fun = function(x) {
                         Z <<- x
+                        Z
                         x <- Z
                         x = x[!is.na(x$value),]
                         n_pred = sum(x$is.Predictor == 1)
@@ -1954,7 +1958,11 @@ p.metabolites_rsd.sel <- ggplot(toPlot.selected, aes(x = metabolite.label, y = R
   scale_y_continuous(labels=percent) +
   coord_flip(ylim = c(0,1)) +
   theme_bw()
-  
+
+
+ 
+
+
 
 ## -- toy example of saturation ----
 
