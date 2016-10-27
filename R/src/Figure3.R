@@ -878,7 +878,8 @@ ex.vol = 100*1e-6
 metabolitesTCA.long$concentration = metabolitesTCA.long$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
 
 #different dilution used fot AA protocol
-ex.vol = 200*1e-6
+#ex.vol = 200*1e-6
+ex.vol = 400*1e-6 # correct dilution factor
 
 metabolitesAA.long$concentration = metabolitesAA.long$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
 
@@ -1516,6 +1517,8 @@ dataset.genes %>% filter(degree == 1, metabolite %in% metabolite.order$metabolit
 
 # ---- aa concentrations in predictor mutants ------------
 load("../Michael_AA/data/2016-03-30/01_Workspace.Rdata")
+
+
 load("../kinase_swath/data/2016-10-18/01_Workspace_adjusted.Rdata")
 load("./R/objects/all_final_models.importance.models_summary2.RData")
 
@@ -1586,9 +1589,11 @@ toPlot <- toPlot %>% group_by(metabolite) %>%
 
 # adjust concentration with volume and OD from this paper: doi:10.1016/j.funbio.2009.11.002
 my.vol = c(median = 45.54, sd = 0.9) * 1e-15 # cell vol
-my.cells = 3.2 * 10^7 * 1.5*5 # median of spectrophotometre data
+#my.cells = 3.2 * 10^7 * 1.5*5 # median of spectrophotometre data incorrect
+my.cells = 3.2 * 10^7 * ODdata[3] # median of spectrophotometre data correct
 #different dilution used fot AA protocol
 ex.vol = 200*1e-6
+
 
 #toPlot$value = toPlot$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
 
@@ -1656,6 +1661,7 @@ p.rangez <- ggplot(toPlot.summary, aes(x = rangeZ, fill= factor(is.Predictor))) 
 
 load("./R/objects/dataTCA.create_datasets.RData")
 load("./R/objects/dataAA.create_datasets.RData")
+load()
 metabolitesTCA.long = melt(dataTCA$metabolites)
 metabolitesTCA.long$dataset = "TCA"
 
