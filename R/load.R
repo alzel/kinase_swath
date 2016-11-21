@@ -544,6 +544,24 @@ load_flux_coupling = function() {
   save(flux_coupling,file=file_path)
 }
 
+
+
+load_protein_turnovers = function() {
+  library(xlsx)
+  tmp = read.xlsx(file="./data/2016-11-21/mmc2.xlsx", header=T, sheetName="Sheet1")
+  tmp.f <- tmp %>% dplyr::select(ENSG, Degradation.rates..min.1., t1.2..min.)
+  names(tmp.f) <- c("ORF", "degradation_rate_per_min", "half_life_min")
+  
+  protein_turnover <-tmp.f %>% 
+    mutate(ORF = strsplit(as.character(ORF), ";")) %>% 
+    unnest(ORF) %>% dplyr::select(ORF, degradation_rate_per_min, half_life_min)
+  
+  file_name = paste("protein_turnover", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(protein_turnover,file=file_path)
+
+}
+
 main = function() {
   load_proteome()
   
@@ -568,6 +586,8 @@ main = function() {
   load_iMaranas_GTrass()
   load_essential_ORFs()
   load_sentinels_dataset()
+  load_protein_turnovers()
+  
 }
 
 main()
