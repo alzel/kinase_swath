@@ -1378,6 +1378,7 @@ p.metabolite_picture <- ggnet2(B, label.size = 3, edge.alpha = 1,
                            edge.lty ="line_type" )
 
 
+
 ## ---  kinase picture ---- 
 
 node_properties1 <- data.frame(node = V(net1)$name,
@@ -1518,7 +1519,6 @@ dataset.genes %>% filter(degree == 1, metabolite %in% metabolite.order$metabolit
 # ---- aa concentrations in predictor mutants ------------
 load("../Michael_AA/data/2016-03-30/01_Workspace.Rdata")
 
-
 load("../kinase_swath/data/2016-10-18/01_Workspace_adjusted.Rdata")
 load("./R/objects/all_final_models.importance.models_summary2.RData")
 
@@ -1533,16 +1533,64 @@ metabolites.models.long <- all_final_models %>%
   filter(Rsquared == max(Rsquared,na.rm = T))
 
 metabolites.models.long <- metabolites.models.long %>% dplyr::rename(algorithm = model)
-
 #metabolites.models.long %>% group_by(metabolite, normalization, degree, preprocessing) %>% summarise(metabolite_n = n()) %>% View
 predictors.dataset <- left_join(metabolites.models.long, all_final_models.importance) 
 
 metabolite.predictors <- predictors.dataset %>% 
   group_by(metabolite,id) %>% 
-  arrange(abs(loading)) %>% 
+  arrange(-abs(loading)) %>% 
   filter(row_number()<=10) %>% filter(Overall >= 50) %>%
   ungroup() %>%
   dplyr::select(metabolite, degree, gene ) %>% group_by(metabolite, degree, gene) %>% distinct()
+
+
+toPlot <- metabolite.predictors %>% 
+  filter(metabolite %in% metabolite.order$metabolite) %>%
+  group_by(gene) %>%
+    mutate(n = length(unique(metabolite))) %>%
+  ungroup() %>%
+    mutate(n_rel = n/length(unique(metabolite))) %>%
+    arrange(-n) 
+
+toPlot <- toPlot %>%  droplevels() 
+toPlot$pathway <- metabolite.order$pathway[match(toPlot$metabolite, metabolite.order$metabolite)]
+toPlot$pathway <- factor(toPlot$pathway, levels = as.character(metabolite.order$pathway))
+
+# toPlot %>% group_by(pathway, gene) %>%
+#   summarise(n_pathway = n()) %>% 
+#   arrange(gene, -n_pathway, pathway) %>% View()
+
+toPlot$met_name <- metabolite.order$met_name[match(toPlot$metabolite, metabolite.order$metabolite)]
+toPlot$met_name <- factor(toPlot$met_name, levels = rev(metabolite.order$met_name))
+toPlot$gene_name <- orf2name$gene_name[match(toPlot$gene, orf2name$ORF)]
+toPlot$gene_name <- factor(toPlot$gene_name, levels = unique(toPlot$gene_name))
+
+
+# all important predictors for each metabolites
+p.met_enzymes <- ggplot(toPlot) +
+  geom_point(aes(x = gene_name, y = met_name, colour = degree)) +
+  ylab("Metabolite") +
+  xlab("Enzyme") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 4),
+        axis.text.y = element_text(size = 5))
+http://127.0.0.1:45096/graphics/plot_zoom_png?width=929&height=696
+toPlot$gene_name <- orf2name$gene_name[match(toPlot$gene, orf2name$ORF)]
+toPlot$gene_name <- factor(toPlot$gene_name, levels = unique(toPlot$gene_name))
+
+
+p.met_enzymes <- ggplot(data = toPlot) +
+  #geom_point(aes(x = gene_name, y =n )) +
+  geom_bar(aes(x = gene_name, fill = pathway)) +
+  ylab("Metabolite") +
+  ylim(c(0,30)) +
+  xlab("Enzyme") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.po) +
+  scale_x_discrete(breaks=levels(toPlot$gene_name)[c(1:10, seq(11, length(levels(toPlot$gene_name)), 5))]) +
+  scale_fill_tableau("tableau20") +
+  background_grid(major = "none", minor = "none") +
+  
+p.met_enzymes
 
 load("./R/objects/overlaps.gene_overlaps.RData")
 load("./R/objects/dataset.genes.gene_overlaps.RData")
@@ -1581,6 +1629,10 @@ dataset.predictors <- bind_rows(dataset.predictors, bg)
 data.long <- tbl_df(melt(data.intra, id.vars = c("ORF", "gene")))
 dataset.predictors <- left_join(dataset.predictors, data.long, by = c("metabolite" = "variable", "gene" = "ORF") ) %>% filter(!is.na(value))
 
+# View(dataset.predictors)
+# dataset.predictors %>% group_by(gene) %>%
+#   summarize(n = n()) %>% arrange (-n) %>% View() 
+
 
 toPlot <- dataset.predictors %>% filter(!is.na(value))
 
@@ -1596,7 +1648,6 @@ ex.vol = 200*1e-6
 
 
 #toPlot$value = toPlot$value*ex.vol/(my.cells*my.vol[1])/1000 # mM
-
 
 
 toPlot.stats <- ddply(toPlot, .(metabolite),
@@ -1629,10 +1680,11 @@ p.enzyme_predictor <- ggplot(toPlot, aes(y = value, x = is.Predictor)) +
   theme_bw() +
   xlab("") +
   ylab("Intracellular metabolite concentration, mM") +
-  theme(legend.position = "none",
-        axis.text.x = element_blank(),
+  theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         panel.grid = element_blank())
+
+
 
 #ranges
 toPlot.summary <- toPlot %>% group_by(metabolite, is.Predictor) %>%  
@@ -1704,8 +1756,8 @@ metabolites.long.selected <- metabolites.long %>% filter(gene_name %in% c("VPS15
 
 metabolite.predictors <- predictors.dataset %>% 
   group_by(metabolite,id) %>% 
-  arrange(abs(loading)) %>% 
-  filter(row_number()<=5) %>% filter(Overall >= 80) %>%
+  arrange(-abs(loading)) %>% 
+  filter(row_number()<=10) %>% filter(Overall >= 50) %>%
   ungroup() %>%
   dplyr::select(metabolite, degree, gene ) %>% 
   group_by(metabolite, degree, gene) %>% distinct() %>% 
@@ -1809,7 +1861,7 @@ predictors.dataset <- left_join(metabolites.models.long, all_final_models.import
 
 metabolite.predictors <- predictors.dataset %>% 
   group_by(metabolite,id) %>% 
-  arrange(abs(loading)) %>% 
+  arrange(-abs(loading)) %>% 
   filter(row_number()<=10) %>% filter(Overall >= 50) %>%
   ungroup() %>%
   dplyr::select(metabolite, degree, gene ) %>% group_by(metabolite, degree, gene) %>% distinct()
@@ -2273,7 +2325,6 @@ load("./R/objects/dataTCA.create_datasets.RData")
 load("./R/objects/dataPPP_AA.create_datasets.RData")
 
 measured.enzymes = measured.proteins[measured.proteins %in%  iMM904$gene]
-
 corPPP_AAA.long <- melt(cor(dataPPP_AA$metabolite, dataPPP_AA$proteins[,measured.enzymes], use="pairwise.complete.obs"), id.vars = rownames )
 corTCA.long <- melt(cor(dataTCA$metabolite, dataTCA$proteins[,measured.enzymes], use="pairwise.complete.obs"), id.vars = rownames)
 corAA.long <- melt(cor(dataAA$metabolite, dataAA$proteins[,measured.enzymes], use="pairwise.complete.obs"), id.vars = rownames)
@@ -2303,6 +2354,72 @@ p.cor <- ggplot(toPlot, aes(x = cor)) +
   xlab("Pearson correlation between enzyme and metabolite levels")
 p.cor$toScale = T
 plots.list = lappend(plots.list, p.cor)
+
+
+## --- assessing protein turnovers -----
+
+load("./R/objects/protein_turnover._load_.RData")
+
+protein_turnover$isiMM904 <- ifelse(protein_turnover$ORF %in% iMM904$gene, T, F )
+protein_turnover$degradation_rate_per_min <- as.numeric(as.character(protein_turnover$degradation_rate_per_min))
+protein_turnover$half_life_min <- as.numeric(as.character(protein_turnover$half_life_min))
+
+toPlot <- protein_turnover
+toPlot.stats <- data.frame(pval = wilcox.test(toPlot$degradation_rate_per_min[toPlot$isiMM904 == T],
+                                              toPlot$degradation_rate_per_min[toPlot$isiMM904 == F])$p.value) 
+p.turnover <- ggplot(toPlot, aes(y = log(degradation_rate_per_min), x = factor(isiMM904))) +
+  geom_boxplot() +
+  ggtitle(paste("P-value = ", format(toPlot.stats$pval, digits = 2)))+
+  theme(aspect.ratio = 8/2)
+
+
+load("./R/objects/proteins.matrix.sva.0.5.1.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.FC.RData")
+
+protein.matrix.mean = my_means(exp(proteins.matrix.sva.0.5.1))
+protein.matrix.mean.long = melt(protein.matrix.mean)
+
+names(protein.matrix.mean.long) = c("ORF", "KO", "value")
+
+enzyme_CVs <- protein.matrix.mean.long %>%
+  filter(ORF %in% measured.enzymes) %>%  
+  group_by(ORF) %>%
+  summarise(CV = sd(value, na.rm = T)/mean(value, na.rm = T))
+
+
+enzyme_CVs$degradation_rate_per_min <- protein_turnover$degradation_rate_per_min[match(enzyme_CVs$ORF, protein_turnover$ORF)]
+enzyme_CVs$half_life_min <- protein_turnover$half_life_min[match(enzyme_CVs$ORF, protein_turnover$ORF)]
+
+
+enzyme_FCsum <- proteins.matrix.FC %>% 
+  filter(KO %in% exp_metadata$ORF, ORF %in% measured.enzymes) %>%
+  group_by(ORF) %>%
+  summarise(fc_abs_sum = sum(abs(logFC)))
+enzyme_FCsum$degradation_rate_per_min <- protein_turnover$degradation_rate_per_min[match(enzyme_FCsum$ORF, protein_turnover$ORF)]
+enzyme_FCsum$half_life_min <- protein_turnover$half_life_min[match(enzyme_FCsum$ORF, protein_turnover$ORF)]
+
+
+
+toPlot <- enzyme_CVs %>% 
+  ungroup() %>%
+  mutate(Z_deg = (degradation_rate_per_min - mean(degradation_rate_per_min, na.rm = T))/sd(degradation_rate_per_min, na.rm = T),
+         Z_half = (half_life_min - mean(half_life_min, na.rm = T))/sd(half_life_min, na.rm = T)) %>% filter(abs(Z_half) < 2, abs(Z_deg) < 2)
+
+cor.test(enzyme_CVs$CV, log(enzyme_CVs$degradation_rate_per_min))
+
+toPlot.stats <- data.frame(cor = cor.test(enzyme_CVs$CV, enzyme_CVs$degradation_rate_per_min)$estimate,
+                           pval = cor.test(enzyme_CVs$CV, enzyme_CVs$degradation_rate_per_min)$p.value)
+
+p.cv_vs_turnover <- ggplot(toPlot, aes(x = degradation_rate_per_min, y = CV)) +
+  ggtitle(paste("corr = ",  round(toPlot.stats$cor, 2), "P-value = ", format(toPlot.stats$pval, 2))) +
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  ylab("Enzyme variability across kinase mutants") +
+  xlab("Degratation rate, 1/min") +
+  theme(aspect.ratio = 1)
+
+p = plot_grid(p.turnover, p.cv_vs_turnover, labels = c("A", "B"))
+plots.list = lappend(plots.list, p)
 
 
 # ---- Figure3 --------------
