@@ -855,7 +855,7 @@ ec.gene = unique(gene.annotations[gene.annotations$V3 == "EC number",c(1,4)])
 coverage.ec = droplevels(coverage[coverage$type == "gene",])
 coverage.ec = merge(coverage.ec, ec.gene, by.x = "neighbour", by.y = "V4")
 coverage.ec$kegg_id = metabolite2iMM904$kegg_id[match(coverage.ec$metabolite, metabolite2iMM904$id)]
-brenda[grep(pattern = "pro", x = brenda$substrate, ignore.case = T),] %>% View()
+brenda[grep(pattern = "pro", x = brenda$substrate, ignore.case = T),] 
 
 brenda.f = brenda[!brenda$KEGGID == "",]
 brenda.f = brenda.f[grep(pattern="mutant|recombinant", x= brenda.f$commentary, invert=T),]
@@ -1149,6 +1149,8 @@ predicted.metabolites <- predicted.metabolites.long %>%
 predicted.metabolite.matrix <- as.matrix(predicted.metabolites[,-1])
 rownames(predicted.metabolite.matrix) <- predicted.metabolites$metabolite
 
+
+
 bks <- seq(-4, 4, 0.25)
 pheatmap(predicted.metabolite.matrix, breaks = bks, ,
          color =  colorRampPalette(c("red4","white","blue4"))(length(bks)-1), filename = "test.pdf", 
@@ -1421,8 +1423,9 @@ p.kinase_picture <- ggnet2(B1, label.size = 3, edge.alpha = 1, arrow.size = 1,
                                node.label = "label",
                                edge.lty ="line_type" )
 
-# ----- gene overlaps -----
 
+
+# ----- gene overlaps -----
 load("./R/objects/overlaps.gene_overlaps.RData")
 load("./R/objects/dataset.genes.gene_overlaps.RData")
 overlaps.f <- overlaps %>% filter(metabolite1 %in% metabolite.order$metabolite, metabolite2 %in% metabolite.order$metabolite) %>% droplevels()
@@ -1573,7 +1576,7 @@ p.met_enzymes <- ggplot(toPlot) +
   xlab("Enzyme") +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 4),
         axis.text.y = element_text(size = 5))
-http://127.0.0.1:45096/graphics/plot_zoom_png?width=929&height=696
+
 toPlot$gene_name <- orf2name$gene_name[match(toPlot$gene, orf2name$ORF)]
 toPlot$gene_name <- factor(toPlot$gene_name, levels = unique(toPlot$gene_name))
 
@@ -2340,7 +2343,6 @@ metabolites.cor$metabolite_name <- metabolite.order$met_name[match(metabolites.c
 
 toPlot <- metabolites.cor %>% 
   filter(metabolite %in% metabolite.order$metabolite)
-
 toPlot$metabolite_name <- factor(toPlot$metabolite_name, levels = as.character(metabolite.order$met_name))
 
 toPlot.stats <- toPlot %>% 
@@ -2354,6 +2356,8 @@ p.cor <- ggplot(toPlot, aes(x = cor)) +
   xlab("Pearson correlation between enzyme and metabolite levels")
 p.cor$toScale = T
 plots.list = lappend(plots.list, p.cor)
+
+
 
 
 ## --- assessing protein turnovers -----
@@ -2420,6 +2424,85 @@ p.cv_vs_turnover <- ggplot(toPlot, aes(x = degradation_rate_per_min, y = CV)) +
 
 p = plot_grid(p.turnover, p.cv_vs_turnover, labels = c("A", "B"))
 plots.list = lappend(plots.list, p)
+
+
+# --- genotype-phenotype correlations ----
+
+load("./R/objects/all_final_models.models_summary2.RData")
+load("./R/objects/dataAA.create_datasets.RData")
+load("./R/objects/dataTCA.create_datasets.RData")
+load("./R/objects/dataPPP_AA.create_datasets.RData")
+
+predicted.metabolites.long <- all_final_models %>% 
+  filter(isImputed == 0, metabolite != "Glu") %>%
+  group_by(metabolite, normalization, degree, preprocessing) %>%
+  filter(RMSE == min(RMSE,na.rm = T)) %>%
+  group_by(metabolite) %>%
+  filter(Rsquared == max(Rsquared,na.rm = T))
+
+dataAA.long <- melt(dataAA$metabolites, varnames = "rownames")
+names(dataAA.long) <- c("sample_name", "metabolite", "value")
+dataAA.long$genotype <- as.character(exp_metadata$ORF[match(dataAA.long$sample_name, exp_metadata$sample_name)])
+dataAA.long$dataset = "AA"
+
+dataTCA.long <- melt(dataTCA$metabolites, varnames = "rownames")
+names(dataTCA.long) <- c("sample_name", "metabolite", "value")
+dataTCA.long$genotype <- as.character(exp_metadata$ORF[match(dataTCA.long$sample_name, exp_metadata$sample_name)])
+dataTCA.long$dataset = "TCA"
+
+dataPPP_AA.long <- melt(dataPPP_AA$metabolites, varnames = "rownames")
+names(dataPPP_AA.long) <- c("sample_name", "metabolite", "value")
+dataPPP_AA.long$genotype <- dataPPP_AA.long$sample_name
+dataPPP_AA.long$dataset = "PPP_AA"
+
+
+metabolites.long <- do.call(rbind.data.frame, list(dataTCA.long, dataAA.long, dataPPP_AA.long))
+
+metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
+metabolite.order = metabolite.order[with(metabolite.order,order(desc(method),pathway,Order, met_name)),]
+
+metabolites.long$metabolite_name <- toupper(metabolite2iMM904$model_name[match(metabolites.long$metabolite, metabolite2iMM904$id)])
+
+metabolites.stats <- metabolites.long %>% 
+  filter(metabolite %in% metabolite.order$metabolite) %>% 
+  distinct(genotype, metabolite) %>%
+  group_by(genotype) %>% 
+  summarise(n = n()) %>% arrange(desc(n)) %>% mutate(my_rank = 1:length(genotype))
+    
+metabolites.sumary <- metabolites.long %>% 
+  group_by(dataset, genotype, metabolite) %>% 
+    summarise(mean_value = mean(value, na.rm = T)) %>%
+  group_by(dataset, metabolite) %>%
+    mutate(z_mean_value = (mean_value - mean(mean_value, na.rm = T))/sd(mean_value, na.rm = T))
+
+
+predicted_measured <- left_join(predicted.metabolites.long %>% 
+                                  filter(knockout %in% metabolites.sumary$genotype), 
+                                metabolites.sumary, 
+                                by = c("dataset" = "dataset", "metabolite" = "metabolite", "knockout" = "genotype") )
+
+predicted_measured <- predicted_measured %>% 
+  group_by(metabolite) %>% 
+  mutate(z_mean_value = (mean_value - mean(mean_value, na.rm = T))/sd(mean_value, na.rm = T),
+         z_pred.untransformed = (pred.untransformed - mean(pred.untransformed, na.rm = T))/sd(pred.untransformed,na.rm = T))
+
+selected_genotypes <- (metabolites.stats %>% filter(my_rank <= 13, genotype != "WT"))$genotype
+
+predicted_measured %>% filter(knockout %in% selected_genotypes) %>%
+  ggplot(aes(x = z_pred.untransformed, y = z_mean_value ))+
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  facet_wrap(~knockout, scales = "free") + theme_bw()
+
+
+p.density_errors <- predicted_measured %>% 
+  summarize(error = mean(abs(pred.untransformed - mean_value)/mean_value, na.rm = T)) %>% 
+  ggplot(aes(x = error)) +
+    geom_density() +
+    xlab("Mean absolute error")
+  
+
+
 
 
 # ---- Figure3 --------------
