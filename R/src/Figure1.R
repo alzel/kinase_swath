@@ -235,7 +235,7 @@ p = ggplot(data = toPlot, aes(x=type, y=CV*100)) +
   scale_y_log10(limits=c(5,100), breaks=c(5, 10, 15,20, 50,  100)) +
   annotation_logticks(sides="l") +
   ylab("Signal variation for the duration of experiment, CV")
-p 
+
 
 toPlot <- data.all.summary %>% filter(type == "proteins")
 p.CV = ggplot(data = toPlot, aes(x=CV)) + 
@@ -243,7 +243,8 @@ p.CV = ggplot(data = toPlot, aes(x=CV)) +
   scale_x_log10(limits=c(5,100)/100, breaks=c(5, 10, 15,20, 50,  100)/100, labels = percent_format())+
   annotation_logticks(sides="b") +
   xlab("Signal variation during the duration of experiment, CV%") +
-  geom_vline(xintercept = genefilter::shorth(toPlot$CV), linetype=5) +
+  #geom_vline(xintercept = genefilter::shorth(toPlot$CV), linetype=5) +
+  geom_vline(xintercept = median(toPlot$CV), linetype=5) +
   theme_bw() + 
   theme(aspect.ratio = 1)
   #background_grid(major = "x", minor="x")
@@ -480,7 +481,10 @@ p.enzyme_perturbation <- ggplot(toPlot, aes(x = fraction)) +
   theme_bw() +
   theme(aspect.ratio = 1)
 
+max(p.enzyme_perturbation$data$fraction)
 p.volcano_combined2 <- p.volcano1 + annotation_custom(grob = ggplotGrob(p.enzyme_perturbation), xmin = 0, xmax = 5, ymin = 20 , ymax = 120)
+
+
 
 # ---- absolute perturbations ------
 load(file = "./R/objects/absolute_dataset._clean_.RData")
@@ -506,11 +510,13 @@ WT_abundance = absolute_dataset.f %>%
   summarise(measured_enzyme_abundance = sum(abundance, na.rm = T))
 
 abs_changes <- proteins.FC.f %>% 
-  mutate(absolute_change = ifelse(p.value_BH < pval_thr, abundance * (2^logFC), abundance)) %>% 
-  #mutate(absolute_change =  abundance * 2^logFC) %>% 
-  #filter(p.value_BH < pval_thr) %>%
-  group_by(KO) %>%
-  summarise(change = (sum(absolute_change, na.rm = T) - sum(abundance, na.rm=T))/sum(abundance, na.rm=T))
+  mutate(absolute_change = ifelse(p.value_BH < pval_thr, abundance * (2^logFC), abundance),
+         percent_change = (absolute_change - abundance)/abundance) %>% 
+  group_by(KO) %>% 
+  summarise(change = (sum(absolute_change, na.rm = T) - sum(abundance, na.rm=T))/sum(abundance, na.rm=T),
+            median_change = median(abs(percent_change), na.rm=T),
+            mean_change = mean(abs(percent_change), na.rm=T),
+            max_change = max(abs(percent_change), na.rm=T))
 
 
 abs_changes$label <- as.character(exp_metadata$gene[match(abs_changes$KO, exp_metadata$ORF)])
@@ -551,9 +557,14 @@ p.absolute <- ggplot(toPlot, aes(x=label, y=n)) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, face = "italic"), aspect.ratio = 5/8)
 
-
 p.absolute$toScale <- T
 plots.list <- lappend(plots.list, p.absolute)
+
+toPlot.long <- melt(as.data.frame(toPlot), id.vars = c("KO", "label"))
+absolute_numbers_proteins <- toPlot.long %>% group_by(variable) %>% summarize(mean(value))
+
+
+
 
 # IRT chromatogram stability ------------------
 
@@ -782,8 +793,8 @@ p.tr_vs_pr_cor.hist <- ggplot(toPlot, aes(x = cor)) +
 
 # --- saturation plots for supplementary ---------------
 
-pval_thr = 0.01
-FC_thr  = log2(1)
+pval_thr = 0.05
+FC_thr  = log(1.7)
 
 transcriptome.FC.f.metabolic <- tbl_df(transcriptome.FC.f) %>% 
   filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr, isiMM904 == T)
@@ -849,19 +860,19 @@ p.saturation <- ggplot(toPlot, aes(x = n_fraction, y = mean.intersection_fractio
   theme(legend.position = c(0.7, 0.5))
 
 
-transcriptome.FC.f.stats$n_yeast_fraction <- transcriptome.FC.f.stats$n_metabolic/transcriptome.FC.f.stats$n_total
+transcriptome.FC.f.stats$n_yeast_fraction <- transcriptome.FC.f.stats$n_yeast/transcriptome.FC.f.stats$n_total
 toPlot <- transcriptome.FC.f.stats
 
-p.constant_fraction <- ggplot(toPlot %>% filter(n_total > 0 ), aes(x = n_total, y = n_yeast_fraction)) +
+p.constant_fraction <- ggplot(toPlot , aes(x = n_total, y = n_yeast_fraction)) +
   geom_point() +
-  geom_smooth(method = "loess", se=F) +
+  stat_smooth(method = "lm", formula=y~ns(x,2), se=F) +
   xlab("Number of proteins changes per mutant") +
   ylab("Fraction of metabolic enzymes affected by kinase") +
   theme_bw() + theme(aspect.ratio = 5/8)
 
 plots.list <- lappend(plots.list, p.constant_fraction)
 
-
+median(toPlot$n_metabolic/toPlot$n_total)
 
 # Batch Effects ---------------------
 #load("./R/objects/peptides.matrix.RData")
@@ -1246,6 +1257,7 @@ p.saturation <- ggplot(toPlot, aes(x = n_fraction, y = mean.intersection_fractio
   xlab("Fraction of perturbed metabolic network, %") +
   theme(legend.position = c(0.7, 0.5))
 
+
 # -- PPI and other networks ----- 
 load("./R/objects/yeastract._load_.RData")
 load("./R/objects/GO_slim.raw._load_.RData")
@@ -1495,6 +1507,11 @@ load("./R/objects/iMM904._load_.RData")
 protein.matrix = proteins.matrix.sva.0.5.1
 proteins.FC = proteins.matrix.sva.0.5.1.FC
 
+tmp <- proteins.FC
+tmp$gene_name <- orf2name$gene_name[match(tmp$ORF, orf2name$ORF)]
+
+write.table(x = tmp, file = "./supplementary_files/proteins.matrix.sva.0.5.1.FC.tsv", quote = F, row.names = F, col.names = T, sep = "\t")
+
 pval_thr = 0.01
 set.seed(123)
 FC_thr = getFC_thr(proteins.matrix=protein.matrix, pval_thr=pval_thr)
@@ -1518,7 +1535,14 @@ proteins.FC.f.stats.metabolic = proteins.FC.f %>% filter(isiMM904, p.value_BH < 
   ungroup() %>% summarise(min = min(changes),
                           max = max(changes),
                           median = median(changes),
-                          average = mean(changes))
+                          average = mean(changes)) 
+
+proteins.FC.f.stats.total = proteins.FC.f %>% filter(p.value_BH < pval_thr, abs(logFC) > FC_thr) %>% 
+  group_by(isiMM904) %>% distinct(ORF) %>%
+  dplyr::summarise(changes = n()) %>% ungroup() %>%
+  dplyr::mutate( perturbed_total = changes[isiMM904 == T] + changes[isiMM904 == F],
+                 perturbed_metabolic = changes[isiMM904 == T]/perturbed_total) %>% View()
+
 
 stats_table <- data.frame(stats_name = character(),
                           value = character(), 
@@ -1571,6 +1595,7 @@ tmp <- t(proteins.FC.f.stats.metabolic)
 stats_tmp <- data.frame(stats = paste0("enzymes_", rownames(tmp)),
                         value = tmp[,1],
                         comment = paste0("Perturbed enzymes ", rownames(tmp)))
+
 stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
 stats_table <- rbind(stats_table, stats_tmp)
 
@@ -1654,6 +1679,100 @@ stats_tmp <- data.frame(stats =  rownames(tmp),
 stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
 stats_table <- rbind(stats_table, stats_tmp)
 
+#absolute enzyme perturbation summarise from all kinases
+tmp <- absolute_numbers_proteins[-c(1,2),]
+stats_tmp <- data.frame(stats =  tmp$variable,
+                        value = tmp$`mean(value)`,
+                        comment = paste0("Average per kinase absolute enzyme ", tmp$variable), stringsAsFactors = F)
+stats_tmp$comment[stats_tmp$stats == "change_percent" ] = "Average per kinase absolute total changes"
+
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+# average/median kinase effect of fractionally on measured by microFlowSWATH 
+tmp = proteins.FC.f
+tmp$sign = ifelse(abs(tmp$logFC) >= FC_thr & tmp$p.value_BH < pval_thr, T,F)
+all_measured_enzymes <- as.vector((proteins.FC.f %>% filter(isiMM904 ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
+all_measured_proteins <- as.vector((proteins.FC.f %>% dplyr::select(ORF) %>% distinct())$ORF)
+
+tmp.stats <- tmp %>% 
+  group_by(KO) %>%
+  summarize(value = sum(sign == T & isiMM904 == T),
+            n_total = sum(sign == T), 
+            fraction = value/n_total) %>% 
+  arrange(value) %>% 
+  ungroup() %>%
+  summarize(mean_SWATH_fraction = mean(value/n_total),
+            median_SWATH_fraction = median(value/n_total))
+
+tmp2 <- t(tmp.stats)
+
+stats_tmp <- data.frame(stats =  rownames(tmp2),
+                        value = tmp2[,1],
+                        comment =  paste0("Perturbation in enzymes out what was measured by uflowSWATH ", rownames(tmp2)))
+
+stats_tmp$rel_value <- with(stats_tmp, value/total_proteins)
+stats_table <- rbind(stats_table, stats_tmp)
+
+# average/median kinase effect of enzyme-coding transcripts
+
+FC_thrTR = log(1.7)
+pval_thrTR = 0.05
+
+all_measured_proteins <- as.vector((proteins.FC.f %>% dplyr::select(ORF) %>% distinct())$ORF)
+transcriptome.FC.f$inSWATH <- ifelse(transcriptome.FC.f$ORF %in% all_measured_proteins, T, F)
+tmp = tbl_df(transcriptome.FC.f)
+tmp$sign = ifelse(abs(tmp$logFC) >= FC_thrTR & tmp$p.value_BH < pval_thrTR, T,F)
+
+#all_measured_enzymes <- as.vector((proteins.FC.f %>% filter(isiMM904 ==T ) %>% dplyr::select(ORF) %>% distinct())$ORF)
+all_measured_enzymes_transcripts <- as.vector((tmp %>% filter(isiMM904 ==T, ORF %in% all_measured_proteins) %>% dplyr::select(ORF) %>% distinct())$ORF)
+all_measured_proteins_transctipts <- as.vector((tmp %>% dplyr::select(ORF) %>% distinct())$ORF)
+
+transcriptome.FC.f.stats <- tmp %>% 
+  group_by(KO) %>%
+  #filter(abs(logFC) >= FC_thr, p.value_BH < pval_thr) %>% 
+  summarize(n_metabolic = sum(sign &isMetabolic == T),
+            n_yeast  = sum(sign & isiMM904),
+            n_total = sum(sign == T))
+
+stats_tmp <- data.frame(stats =  "mean_fraction_tr",
+                        value = mean(transcriptome.FC.f.stats$n_yeast/transcriptome.FC.f.stats$n_total),
+                        comment =  paste0("Mean perturbation in enzyme-coding transctipts"),
+                        rel_value = NA)
+stats_table <- rbind(stats_table, stats_tmp)
+
+# accounring transcript perturbation that are only measured by uflowSWATH
+tmp.stats <- tmp %>% 
+  group_by(KO,inSWATH) %>%
+  summarize(n_metabolic = sum(sign & isiMM904),
+            n_total = sum(sign == T),
+            fraction = n_metabolic/n_total) %>%
+  ungroup() %>% 
+  mutate(fraction = ifelse(is.na(fraction), 0, fraction)) %>% 
+  group_by(inSWATH) %>%
+  summarize(mean_SWATH_fraction =  mean(fraction),
+            median_SWATH_fraction = median(fraction))
+
+tmp2 <- melt(as.data.frame(tmp.stats), id.vars = "inSWATH")
+
+stats_tmp <- data.frame(stats = paste0(tmp2[,1], tmp2[,2]),
+                        value = tmp2[,3],
+                        comment =  paste0("Perturbation enzyme-coding transctipts fractional in uflowSWATH ", tmp2[,1]),
+                        rel_value = NA)
+stats_table <- rbind(stats_table, stats_tmp)
+
+
+
+# CV of proteins
+tmp <- data.all.summary %>% filter(type == "proteins")
+
+stats_tmp <- data.frame(stats =  "median_cv",
+                        value = median(tmp$CV, na.rm = T),
+                        comment =  paste0("Median CV of protein QC samples across whole experiment"))
+
+stats_tmp$rel_value <- NA
+stats_table <- rbind(stats_table, stats_tmp)
+
 
 
 
@@ -1661,7 +1780,7 @@ library("gridExtra")
 p <- tableGrob(stats_table)
 p$landscape = T
 plots.list = lappend(plots.list, p)
-
+plot(p)
 
 
 ## ----- figure version 1 --------
