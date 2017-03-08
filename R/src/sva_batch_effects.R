@@ -91,7 +91,7 @@ p = ggplot(scores, aes(x=PC1, y=PC2)) +
   theme(aspect.ratio = 1, 
         axis.text = element_text(size = rel(1)),
         legend.position = "none")
-
+p$toScale <- T
 plots.list <- lappend(plots.list, p)
 
 before.long = tbl_df(melt(before, id.vars="rownames"))
@@ -127,7 +127,12 @@ p = ggplot(toPlot, aes(x=aquisition_date.str, y=exp(signal), col=batch)) +
   geom_point(data=toPlot.mix,aes(x=aquisition_date.str, y=exp(signal)),col="red") + #MIX
   geom_point(data=toPlot.wt, aes(x=aquisition_date.str, y=exp(signal)),col="blue") + #WT   
   scale_x_date(breaks = date_breaks("1 week"), minor_breaks = date_breaks("1 day"), labels=date_format("%m-%d"))+
-  facet_grid(EG.StrippedSequence~category, scales="free")
+  facet_grid(EG.StrippedSequence~category, scales="free") +
+  theme(aspect.ratio = 1, 
+        axis.text = element_text(size = rel(1)),
+        legend.position = "none")
+  
+p$toScale <- T
 plots.list <- lappend(plots.list, p)
 
 
@@ -142,7 +147,7 @@ lapply(seq_along(plots.list) ,
            p <- plots.list[[x]]
            scale = 1
            if (length(p$toScale) != 0 && p$toScale == T  ){
-             scale = 2
+             scale = 1.5
            }
            ggplot2::ggsave(filename = paste(file_path, x , "pdf", sep = "."), device = NULL,
                            plot = p, width = 210 , height = 297, units = "mm", scale = scale)
