@@ -18,6 +18,10 @@ load("./R/objects/proteins.matrix.quant.combat.RData")
 load("./R/objects/proteins.matrix.combat.RData")
 load("./R/objects/exp_metadata._clean_.RData")
 
+load("./R/objects/proteins.matrix.sva.0.5.1.RData")
+
+
+
 load("./R/objects/aa_metadata._clean_.RData")
 load("./R/objects/aa.data._clean_.RData")
 
@@ -144,7 +148,8 @@ clean_data_TCA = function(imputed = F) {
     metabolitesTCA.long$value.combat[is.na(metabolitesTCA.long$value.raw)] = NA
   }
   
-  proteins.matrix = proteins.matrix.combat
+  #proteins.matrix = proteins.matrix.combat
+  proteins.matrix = proteins.matrix.sva.0.5.1
   
   proteins.long = melt(proteins.matrix, id.vars="rownames")
   names(proteins.long) = c("ORF", "R.Label", "signal")
@@ -692,11 +697,6 @@ common_proteins = dataTCA$proteins[match(rownames(common_metabolites), rownames(
 
 createDataset(response.matrix=common_metabolites,
               predictors.matrix=common_proteins, order=2, include.metabolites=T, output_dir=output_dir_base, preffix="data.TCA_AA")
-
-
-load("./results/2016-02-24/data.AA/data.AA.log.quant.citrulline.5.0.RData")
-View(tmp.df)
-
 
 
   
