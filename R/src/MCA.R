@@ -25,13 +25,29 @@ p.ss <- ggplot(data = dataset.ss, aes(x = variable, y = z_value)) +
   geom_boxplot() +
   facet_wrap(~type, scales = "free") +
   theme_bw() + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
 plots.list = lappend(plots.list, p.ss)
 
 p.ss_density <- ggplot(data = dataset.ss %>% filter(type == "flux"), aes(x = value)) +
   geom_density() +
   facet_wrap(~variable, scales = "free") +
   theme_classic()
+
+p.ss_density$landscape = T
+p.ss_density$toScale = T
 plots.list = lappend(plots.list, p.ss_density)
+
+
+p.ss_density_conc <- ggplot(data = dataset.ss %>% filter(type == "conc"), aes(x = value)) +
+  geom_density() +
+  facet_wrap(~variable, scales = "free") +
+  theme_classic()
+
+p.ss_density_conc$landscape = T
+p.ss_density_conc$toScale = T
+plots.list = lappend(plots.list, p.ss_density_conc)
+
+
 
 #small helper to tidy data for pca
 tidy_pca = function(x) {
@@ -146,7 +162,8 @@ p.example <-  ggplot(toPlot,  aes(x = parameter, y = CC)) +
     geom_boxplot() +
     #geom_jitter() +
     geom_point(data = toPlot %>% filter(KO == "WT"), aes(colour = "red")) +
-    theme_bw() 
+    theme_bw() + theme(aspect.ratio = 5/8) 
+plots.list = lappend(plots.list, p.example)
 
 p.example_zoom <- ggplot(toPlot,  aes(x = parameter, y = CC)) +
   ggtitle("Control coefficients of flux through HXT") +
@@ -154,8 +171,8 @@ p.example_zoom <- ggplot(toPlot,  aes(x = parameter, y = CC)) +
   geom_point(data = toPlot %>% filter(KO == "WT"), aes(colour = "red")) +
   ylim(c(0, 0.5)) +
   theme_bw() + 
-  theme(legend.position="none")
-
+  theme(legend.position="none", aspect.ratio = 5/8)
+plots.list = lappend(plots.list, p.example_zoom)
 
 file_name = paste("results", fun_name, sep = ".")
 file_path = paste(figures_dir, file_name, sep="/")
