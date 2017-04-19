@@ -651,6 +651,21 @@ create.kinases_classes_new = function() {
 
 
 
+createORF2name <- function() {
+  load("./R/objects/gene.annotations._load_.RData")
+  orf2name = unique(data.frame(ORF = gene.annotations$V4,
+                               sgd = gene.annotations$V5,
+                               gene_name = gene.annotations$V6))
+  orf2name$ORF = as.character(orf2name$ORF)
+  orf2name$gene_name = as.character(orf2name$gene_name)
+  orf2name$gene_name[orf2name$gene_name ==""] = orf2name$ORF[orf2name$gene_name ==""]
+  
+  file_name = paste("orf2name", suffix, "RData", sep=".")
+  file_path = paste(output_dir, file_name, sep="/")
+  save(orf2name,file=file_path)
+  
+}
+
 
 main = function() {
   create.peptides()
@@ -670,6 +685,8 @@ main = function() {
   create.Sentinels_dataset()
   createAbsoluteProteins()
   create.kinases_classes_new()
+  
+  createORF2name()
 }
 
 
