@@ -1,10 +1,17 @@
 rm(list = ls())
+
+# library(reshape2)
+# library(plyr)
+# library(tidyverse)
 library(caret)
 library(relaimpo)
+
 source("./R/boot.R")
+
 source("./R/functions.R")
 library("cowplot")
 library("scales")
+
 
 ### summarizes results from linear regression models
 
@@ -571,7 +578,7 @@ toPlot$variable = factor(toPlot$variable, levels = rev(as.character(toPlot_coefs
 toPlot$variable_name <- orf2name$gene_name[match(toPlot$variable, orf2name$ORF)]
 toPlot$variable_name = factor(toPlot$variable_name, levels = rev(as.character(toPlot_coefs$variable_name )))
 
-library(cowplot)
+
 
 p.enzymes <- ggplot() + 
   geom_tile(data = toPlot, aes(y=variable_name, x=gene, fill=value)) +
@@ -845,6 +852,8 @@ plots.list <- lappend(plots.list, p.coverage_r2)
 
 
 brenda <- read.delim("./data/2015-10-07/brenda.txt")
+
+
 load("./R/objects/proteins.matrix.combat.RData")
 
 ec.gene = unique(gene.annotations[gene.annotations$V3 == "EC number",c(1,4)])
@@ -919,7 +928,7 @@ tRNA_predictors <- AA.linear_models %>%
 
 names(tRNA_predictors) <- c("metabolite", "gene_name", "ec")
   
-
+?rename
 # checking for saturation
 
 
@@ -1519,7 +1528,7 @@ dataset.genes %>% filter(degree == 1, metabolite %in% metabolite.order$metabolit
 
 
 
-# ---- aa concentrations in predictor mutants ------------
+# ---- aa concentrations in predictor mutants/ enzyme predictors ------------
 load("../Michael_AA/data/2016-03-30/01_Workspace.Rdata")
 
 load("../kinase_swath/data/2016-10-18/01_Workspace_adjusted.Rdata")
@@ -1532,7 +1541,7 @@ metabolites.models.long <- all_final_models %>%
   group_by(metabolite, normalization, degree, preprocessing) %>%
   #group_by(metabolite) %>%
   filter(RMSE == min(RMSE,na.rm = T)) %>%
-  group_by(metabolite) %>% filter(degree <= 5) %>%
+  group_by(metabolite) %>% filter(degree <= 3) %>%
   filter(Rsquared == max(Rsquared,na.rm = T))
 
 metabolites.models.long <- metabolites.models.long %>% dplyr::rename(algorithm = model)
@@ -1588,10 +1597,13 @@ p.met_enzymes <- ggplot(data = toPlot) +
   ylim(c(0,30)) +
   xlab("Enzyme") +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.po) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   scale_x_discrete(breaks=levels(toPlot$gene_name)[c(1:10, seq(11, length(levels(toPlot$gene_name)), 5))]) +
   scale_fill_tableau("tableau20") +
-  background_grid(major = "none", minor = "none") +
+  background_grid(major = "none", minor = "none")
+# +
+#   ggrepel::geom_text_repel(data = toPlot, aes(label = gene_name, x = 1:length(gene_name), y = 25), 
+#                            segment.alpha = 0.25, segment.size = 0.25)
   
 p.met_enzymes
 
@@ -1716,7 +1728,7 @@ p.rangez <- ggplot(toPlot.summary, aes(x = rangeZ, fill= factor(is.Predictor))) 
 
 load("./R/objects/dataTCA.create_datasets.RData")
 load("./R/objects/dataAA.create_datasets.RData")
-load()
+
 metabolitesTCA.long = melt(dataTCA$metabolites)
 metabolitesTCA.long$dataset = "TCA"
 
@@ -2427,6 +2439,9 @@ plots.list = lappend(plots.list, p)
 
 
 # --- genotype-phenotype correlations ----
+library(purrr)
+library(tidyverse)
+library(reshape2)
 
 load("./R/objects/all_final_models.models_summary2.RData")
 load("./R/objects/dataAA.create_datasets.RData")
@@ -2455,7 +2470,6 @@ names(dataPPP_AA.long) <- c("sample_name", "metabolite", "value")
 dataPPP_AA.long$genotype <- dataPPP_AA.long$sample_name
 dataPPP_AA.long$dataset = "PPP_AA"
 
-
 metabolites.long <- do.call(rbind.data.frame, list(dataTCA.long, dataAA.long, dataPPP_AA.long))
 
 metabolite.order <- read.delim("./data/2015-10-16/metabolites.txt")
@@ -2467,11 +2481,11 @@ metabolites.stats <- metabolites.long %>%
   filter(metabolite %in% metabolite.order$metabolite) %>% 
   distinct(genotype, metabolite) %>%
   group_by(genotype) %>% 
-  summarise(n = n()) %>% arrange(desc(n)) %>% mutate(my_rank = 1:length(genotype))
-    
+  summarise(n = n()) %>% arrange(desc(n)) %>% mutate(rank = row_number(desc(n)))
+
 metabolites.sumary <- metabolites.long %>% 
-  group_by(dataset, genotype, metabolite) %>% 
-    summarise(mean_value = mean(value, na.rm = T)) %>%
+  group_by(dataset, genotype, metabolite) %>% filter(!is.na(value)) %>% 
+    summarise(mean_value = mean(value, na.rm = T)) %>% 
   group_by(dataset, metabolite) %>%
     mutate(z_mean_value = (mean_value - mean(mean_value, na.rm = T))/sd(mean_value, na.rm = T))
 
@@ -2486,20 +2500,66 @@ predicted_measured <- predicted_measured %>%
   mutate(z_mean_value = (mean_value - mean(mean_value, na.rm = T))/sd(mean_value, na.rm = T),
          z_pred.untransformed = (pred.untransformed - mean(pred.untransformed, na.rm = T))/sd(pred.untransformed,na.rm = T))
 
-selected_genotypes <- (metabolites.stats %>% filter(my_rank <= 13, genotype != "WT"))$genotype
 
-predicted_measured %>% filter(knockout %in% selected_genotypes) %>%
-  ggplot(aes(x = z_pred.untransformed, y = z_mean_value ))+
-  geom_point() +
+by_knockout <- predicted_measured %>% group_by(knockout) %>% 
+  filter(!is.na(z_mean_value)) %>% 
+  nest()
+
+prediction_model <- function(df) {
+  lm(z_mean_value ~ z_pred.untransformed, data = df, na.action = "na.omit")
+}  
+
+modify_df <- function(data, glance) {
+  glance$max1 = max(data$z_mean_value, na.rm = T)
+  glance$max2 = min(data$z_pred.untransformed, na.rm = T) - 0.2*min(data$z_pred.untransformed, na.rm = T)
+  return(glance)
+}  
+
+
+model.stats <- by_knockout %>%
+  mutate(model = map(data, prediction_model)) %>% 
+  mutate(glance = map(model, broom::glance)) %>%
+  mutate(glance = map2(data, glance, modify_df)) %>%
+  unnest(glance, .drop = T)
+
+selected_genotypes <- (metabolites.stats %>% filter(rank <= 10, genotype != "WT"))$genotype
+#selected_genotypes <- (model.stats %>% filter(knockout != "WT", ) %>% arrange(desc(r.squared)) %>% filter(row_number() <= 10))$knockout
+
+toPlot <- predicted_measured %>% filter(knockout %in% selected_genotypes) 
+toPlot.stats <- model.stats %>% filter(knockout %in% selected_genotypes) %>% arrange(desc(r.squared))
+toPlot.stats$gene_label <- factor(orf2name$gene_name[match(toPlot.stats$knockout, orf2name$ORF)], levels = orf2name$gene_name[match(toPlot.stats$knockout, orf2name$ORF)])
+
+toPlot$met_label <- metabolite2iMM904$model_name[match(toPlot$metabolite, metabolite2iMM904$id)]
+toPlot$gene_label <- factor(orf2name$gene_name[match(toPlot$knockout, orf2name$ORF)], levels = toPlot.stats$gene_label)
+
+
+p.pheno_geno <- ggplot(toPlot) +
+  geom_point(aes(x = z_pred.untransformed, y = z_mean_value)) +
+  geom_text(aes(label = paste("R2 =", format(r.squared,  digits = 2)), x = max2, y = max1), 
+             data = toPlot.stats , vjust = "top", hjust = "right", parse = F) +
   geom_abline(intercept = 0, slope = 1) +
-  facet_wrap(~knockout, scales = "free") + theme_bw()
+  # geom_text(data = toPlot, aes(label = met_label, x = z_pred.untransformed, y = z_mean_value),  
+  #            check_overlap = T) +
+  geom_text_repel(data = toPlot, aes(label = met_label, x = z_pred.untransformed, y = z_mean_value), 
+                  segment.alpha = 0.25, segment.size = 0.25) +
+  facet_wrap(~ gene_label , scales = "free") + 
+  theme_bw() + 
+  theme(aspect.ratio = 5/8) +
+  labs(x = "Predicted, standartised value",
+       y = "Observed, standartised value")
 
 
-p.density_errors <- predicted_measured %>% 
-  summarize(error = mean(abs(pred.untransformed - mean_value)/mean_value, na.rm = T)) %>% 
-  ggplot(aes(x = error)) +
-    geom_density() +
-    xlab("Mean absolute error")
+file_name = paste(fun_name, "pheno_geno.pdf", sep = ".")
+file_path = paste(figures_dir, file_name, sep="/")
+
+ggsave(p.pheno_geno, file=file_path, width=11.69, height=8.27, scale = 1.5)
+plots.list = lappend(plots.list, p.pheno_geno)
+
+# p.density_errors <- predicted_measured %>% 
+#   summarize(error = mean(abs(pred.untransformed - mean_value)/mean_value, na.rm = T)) %>% 
+#   ggplot(aes(x = error)) +
+#     geom_density() +
+#     xlab("Mean absolute error")
   
 
 
