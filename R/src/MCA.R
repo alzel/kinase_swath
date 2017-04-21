@@ -511,6 +511,60 @@ p.CCC_rank_heatmap <- toPlot %>%
 plots.list = lappend(plots.list, p.CCC_rank_heatmap)
 
 
+## ---- cophenetic correlation of FCC and proteins -----------
+library(dendextend)
+load("./R/objects/dataPPP_AA.imputed.create_datasets.RData")
+load("./R/objects/proteins.matrix.sva.0.5.1.RData")
+
+my_means <- function(proteins.matrix) {
+  
+  proteins.long = reshape2::melt(proteins.matrix, id.vars="rownames")
+  names(proteins.long) = c("EG.StrippedSequence", "R.Label", "signal")
+  proteins.long$ORF = exp_metadata$ORF[match(proteins.long$R.Label, exp_metadata$sample_name)]
+  proteins.long.mean = tbl_df(proteins.long) %>% group_by(EG.StrippedSequence, ORF) %>% summarize(mean = mean(signal))
+  proteins.mean.df = reshape2::dcast(proteins.long.mean, formula=EG.StrippedSequence~ORF, value.var="mean")
+  
+  proteins.mean.matrix = as.matrix(proteins.mean.df[,-1])
+  rownames(proteins.mean.matrix) = as.matrix(proteins.mean.df$EG.StrippedSequence)
+  return(proteins.mean.matrix)  
+}
+
+
+proteins.mean <- t(my_means(proteins.matrix = proteins.matrix.sva.0.5.1))
+
+parameters <- parameter_order 
+parameters[which(parameters == "HOR2")] = "GPP2"
+
+measured_enzymes  <- orf2name$ORF[match(parameters, orf2name$gene_name)]
+measured_enzymes <- measured_enzymes[measured_enzymes %in% colnames(proteins.mean)]
+
+
+left_data <- scale(proteins.mean[rownames(CCflux_matrix), measured_enzymes])
+right_data <- CCflux_matrix
+
+rownames(left_data) <- exp_metadata$gene[match(rownames(left_data), exp_metadata$ORF)]
+rownames(right_data) <- exp_metadata$gene[match(rownames(right_data), exp_metadata$ORF)]
+
+d_left <- left_data %>% dist %>% hclust %>% as.dendrogram
+d_right <- right_data %>% dist %>% hclust %>% as.dendrogram
+d_left_right <- dendlist(proteome = d_left, FCC = d_right)
+
+file_name = paste("coephenetic_correlation", fun_name, "pdf", sep = ".")
+file_path = paste(figures_dir, file_name, sep="/")
+
+pdf(file = file_path, width = 210*0.039 , height = 297*0.039)
+plot(d_left_right, main_left = names(d_left_right)[1], 
+     main_right = names(d_left_right)[2], 
+     sub = paste("Cophenetic correlation =", format(cor_cophenetic(d_left_right), digits = 2, scientific = T)), 
+     cex_main_left = 0.85, cex_main_right = 0.85,
+     cex_sub = 0.75)
+dev.off()
+
+p = recordPlot()
+plots.list = lappend(plots.list, p)
+
+
+
 ## ---- MCA stats  ----
 
 stats_table <- data.frame(stats_name = character(),
@@ -540,7 +594,53 @@ stats_table <- rbind(stats_table, stats_tmp)
 "We observed that for XX % of enzymes the overall control over the fluxes (Methods) in XX% of kinase mutants 
 for at is more than 2-fold different in absolute terms from the wild-type strain. "
 
+total_kinases = nrow(dataset.mca %>% ungroup() %>% distinct(KO)) - 1
+mca_overal <- dataset.mca %>% group_by(var_type, parameter, KO, KO_name) %>% filter(var_type == "flux", VAR != "AK") %>% summarise(overal_CC = sqrt(sum(CC^2, na.rm = T)))
 
+WT.mca_overal <- mca_overal %>% filter(KO == "WT")
+
+mca_overal <- left_join(mca_overal, WT.mca_overal, by = c("var_type" = "var_type", "parameter" = "parameter"))  %>% ungroup() %>%
+  mutate(value_change = (overal_CC.x - overal_CC.y)/overal_CC.y) %>% dplyr::select(-matches(".y$")) 
+names(mca_overal) <- sub(x = names(mca_overal), pattern = ".x$", replacement = "")
+
+thr = 0.5
+value <- (mca_overal %>% filter(KO != "WT") %>% 
+  group_by(KO, KO_name, parameter) %>% 
+    filter(abs(value_change) > thr) %>% ungroup() %>% distinct(KO) %>% nrow())/total_kinases
+
+stats_tmp <- data.frame(stats = "overal_FCC_kinase_fraction", 
+                        value = round((value),2),
+                        comment = paste("Fraction of kinase mutants with >", thr, "overall FCC changes"))
+stats_table <- rbind(stats_table, stats_tmp)
+
+total_enzymes = nrow(dataset.mca %>% ungroup() %>% distinct(parameter))
+value <- (mca_overal %>% filter(KO != "WT") %>% 
+            group_by(KO, KO_name, parameter) %>% 
+            filter(abs(value_change) > thr) %>% ungroup() %>% distinct(parameter) %>% nrow())/total_enzymes
+
+stats_tmp <- data.frame(stats = "overal_FCC_enzyme_fraction", 
+                        value = round((value),2),
+                        comment = paste("Fraction of enzymes in mutants with >", thr, "overall FCC changes"))
+stats_table <- rbind(stats_table, stats_tmp)
+
+# FCC ranks differences to WT
+wt_ranks <- p.FCC_rank_heatmap$data %>% filter(KO == "WT") %>% arrange(rank) %>% group_by(KO) %>% summarise(rank_order = paste0(parameter, collapse = "|"))
+rest_ranks <- p.FCC_rank_heatmap$data %>% filter(KO != "WT") %>% 
+  group_by(KO) %>% 
+    arrange(rank) %>% 
+    summarise(rank_order = paste0(parameter, collapse = "|")) %>%
+    mutate(isSame_rank = ifelse(rank_order == wt_ranks$rank_order, 1, 0))
+
+
+stats_tmp <- data.frame(stats = "FCC_ranks_differences", 
+                        value = (total_kinases - sum(rest_ranks$isSame_rank))/total_kinases,
+                        comment = paste("Fraction of kinase mutants with ranks different to WT"))
+stats_table <- rbind(stats_table, stats_tmp)
+
+library("gridExtra")
+p <- tableGrob(stats_table)
+p$landscape = T
+plots.list = lappend(plots.list, p)
 
 
 ## ----- figure version 1 --------
