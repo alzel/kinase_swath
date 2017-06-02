@@ -104,8 +104,8 @@ load("./R/objects/proteins.matrix.combat.RData")
 
 
 proteins.log.quant = t(proteins.matrix.combat.quant)
-proteins.raw = exp(t(my_means(proteins.matrix.combat)))
-proteins.log = t(my_means(proteins.matrix.combat))
+proteins.raw = exp(t(proteins.matrix.combat))
+proteins.log = t(proteins.matrix.combat)
 
 
 
@@ -114,17 +114,17 @@ filesToProcess = dir(path=input_path, pattern = pattern.p, recursive=F)
 matches = stringr::str_match_all(pattern=pattern.p, filesToProcess)
 
 
-tmp_df <- bind_rows(lapply(matches, FUN = function(x) {as.tibble(x)}))
-names(tmp_df) = c("file", "dataset", "species", "degree", "ismetincluded", "knockout", "model", "preprocessing")
+# tmp_df <- bind_rows(lapply(matches, FUN = function(x) {as.tibble(x)}))
+# names(tmp_df) = c("file", "dataset", "species", "degree", "ismetincluded", "knockout", "model", "preprocessing")
 
-tmp_df <- tmp_df %>% ungroup() %>% 
-  dplyr::mutate(metabolite = stringr::str_replace(string = species, pattern="log.quant.(.*)", replacement="\\1")) %>%
-  dplyr::mutate(metabolite = stringr::str_replace(string=metabolite, pattern="log.(.*)", replacement="\\1"),
-                normalization = "bc") 
+# tmp_df <- tmp_df %>% ungroup() %>% 
+#   dplyr::mutate(metabolite = stringr::str_replace(string = species, pattern="log.quant.(.*)", replacement="\\1")) %>%
+#   dplyr::mutate(metabolite = stringr::str_replace(string=metabolite, pattern="log.(.*)", replacement="\\1"),
+#                 normalization = "bc") 
 
-tmp_df$normalization[grep(pattern="log", x=tmp_df$species)] = "log"
-tmp_df$normalization[grep(pattern="log.quant", x=tmp_df$species)] = "log.quant"
-tmp_df %>% group_by(knockout) %>% summarise(n = n())
+#tmp_df$normalization[grep(pattern="log", x=tmp_df$species)] = "log"
+#tmp_df$normalization[grep(pattern="log.quant", x=tmp_df$species)] = "log.quant"
+#tmp_df %>% group_by(knockout) %>% summarise(n = n())
 
 
 
@@ -132,7 +132,7 @@ read_models.caret.predict = function(x) {
   
   # X <<- x
   # x <- X
-  #x <- matches[[1]]
+  # x <- matches[[1]]
   
   file_name = paste(input_path, x[[1]], sep="/") 
   
@@ -224,10 +224,16 @@ read_models.caret.predict = function(x) {
   rownames(tmp.m2) <-  names(predictions.untransformed[[1]])
 
   tmp.m.long <- reshape2::melt(tmp.m)
-  names(tmp.m.long) <- c("knockout", "model", "pred")
+  tmp.m.long$knockout <- exp_metadata$ORF[match(tmp.m.long$Var1, exp_metadata$sample_name)]
+  tmp.m.long <- tmp.m.long %>% dplyr::select(knockout, everything())
+  
+  names(tmp.m.long) <- c("knockout", "sample_name", "model", "pred")
 
   tmp.m.long2 <- reshape2::melt(tmp.m2)
-  names(tmp.m.long2) <- c("knockout", "model", "pred.untransformed")
+  tmp.m.long2$knockout <- exp_metadata$ORF[match(tmp.m.long2$Var1, exp_metadata$sample_name)]
+  tmp.m.long2 <- tmp.m.long2 %>% dplyr::select(knockout, everything())
+  
+  names(tmp.m.long2) <- c("knockout", "sample_name", "model", "pred.untransformed")
   table  <- full_join(tmp.m.long, tmp.m.long2) %>% filter(knockout == x[6])
 
   #table  <- tmp.m.long %>% filter(knockout == x[6])
@@ -251,7 +257,7 @@ model_predictions <- bind_rows(file.list)
 
 model_predictions <- model_predictions %>% group_by(species) %>% 
   dplyr::mutate(metabolite = stringr::str_replace(string = species, pattern="log.quant.(.*)", replacement="\\1")) %>%
-  dplyr::mutate(metabolite = stringr::str_replace(string=metabolite, pattern="log.(.*)", replacement="\\1"),
+  dplyr::mutate(metabolite = stringr::str_replace(string = metabolite, pattern="log.(.*)", replacement="\\1"),
          normalization = "bc") 
 
 
@@ -304,18 +310,46 @@ metabolites.stats <- metabolites.long %>% filter(!is.na(value)) %>%
 #                 z_mean_value_BoxCox = (mean_value_BoxCox - mean(mean_value_BoxCox, na.rm = T))/sd(mean_value_BoxCox, na.rm = T)) 
 # 
 
+metabolites.sumary <- metabolites.long %>% filter(!is.na(value)) %>%
+  dplyr::group_by(dataset, metabolite) %>%
+  dplyr::mutate(lambda = forecast::BoxCox.lambda(value)) %>%
+  dplyr::mutate(value_BoxCox = forecast::BoxCox(value, lambda[1])) %>%
+  # dplyr::group_by(dataset, genotype, metabolite) %>%
+  # dplyr::summarise(mean_value = mean(value, na.rm = T),
+  #                  mean_value_BoxCox = mean(value_BoxCox, na.rm = T)) %>%
+  dplyr::group_by(dataset, metabolite) %>% arrange(metabolite) %>%
+  # dplyr::mutate(z_mean_value = (mean_value - mean(mean_value, na.rm = T))/sd(mean_value, na.rm = T),
+  #               z_mean_value_BoxCox = (mean_value_BoxCox - mean(mean_value_BoxCox, na.rm = T))/sd(mean_value_BoxCox, na.rm = T))
+  dplyr::mutate(z_mean_value = (value - mean(value, na.rm = T))/sd(value, na.rm = T),
+                z_mean_value_BoxCox = (value_BoxCox - mean(value_BoxCox, na.rm = T))/sd(value_BoxCox, na.rm = T))
+
+
+
 
 metabolites.sumary <- metabolites.sumary %>% dplyr::rename(knockout = genotype)
 
-predicted_measured <- full_join(metabolites.sumary %>% ungroup(), model_predictions %>% ungroup(), 
-                                by = c("metabolite" = "metabolite", "knockout" = "knockout") ) %>% ungroup()
+load("./R/objects/metabolites.data._clean_.RData")
+load("./R/objects/metabolite_metadata._clean_.RData")
+
+metabolites.sumary_PPP_AA <- metabolites.sumary %>% filter(dataset == "PPP_AA") %>% dplyr::select(-sample_name)
+
+model_predictions_PPP_AA <- model_predictions %>% filter(dataset == "PPP_AA") %>% 
+  group_by(knockout, model, dataset, species, isImputed, degree, ismetIncluded, preprocessing, file, metabolite, normalization) %>%
+  dplyr::summarise(pred = mean(pred, na.rm = T), 
+                   pred.untransformed = mean(pred.untransformed, na.rm = T))
+    
+predicted_measured <- left_join(model_predictions %>% ungroup() %>% filter(dataset != "PPP_AA"), metabolites.sumary %>% ungroup() %>% filter(dataset != "PPP_AA"),
+                                by = c("sample_name" = "sample_name", "metabolite" = "metabolite", "knockout" = "knockout", "dataset" = "dataset") ) %>% ungroup()
 
 
-tmp_df %>% filter(metabolite == "Acetyl.CoA")
-model_predictions %>% filter(metabolite == "Acetyl.CoA")
+predicted_measured_PPP_AA <- left_join(metabolites.sumary_PPP_AA %>% ungroup(), model_predictions_PPP_AA %>% ungroup(),
+          by = c("metabolite" = "metabolite", "knockout" = "knockout", "dataset" = "dataset") ) %>% ungroup()
+
+
+predicted_measured <- bind_rows(predicted_measured, predicted_measured_PPP_AA)
 
 predicted_measured <- predicted_measured %>% 
-  dplyr::group_by(metabolite, dataset.x) %>% arrange(knockout) %>% 
+  dplyr::group_by(metabolite, dataset) %>% arrange(knockout) %>% 
   dplyr::mutate(z_pred.untransformed = (pred.untransformed - mean(pred.untransformed, na.rm = T))/sd(pred.untransformed,na.rm = T)) 
 
 
@@ -324,7 +358,7 @@ by_knockout <- predicted_measured %>% group_by(knockout) %>%
   nest()
 
 prediction_model <- function(df) {
-  lm(z_mean_value_BoxCox ~ pred, data = df, na.action = "na.omit")
+  lm(z_pred.untransformed ~ z_mean_value, data = df, na.action = "na.omit")
 }  
 
 modify_df <- function(data, glance) {
@@ -341,7 +375,7 @@ model.stats <- by_knockout %>%
   tidyr::unnest(glance, .drop = T) %>% arrange(desc(r.squared))
 
 
-selected_genotypes <- c("YBL088C","YBR097W","YDR122W","YDR477W","YDR490C","YGR188C","YHR079C","YHR082C","YIL042C")
+#selected_genotypes <- c("YBL088C","YBR097W","YDR122W","YDR477W","YDR490C","YGR188C","YHR079C","YHR082C","YIL042C")
 selected_genotypes <- (metabolites.stats %>% filter(rank <=100, genotype != "WT"))$genotype
 selected_genotypes <- (model.stats %>% filter(knockout != "WT", p.value < 0.05) %>% arrange(desc(r.squared)) %>% filter(row_number() <= 10))$knockout
 
@@ -358,14 +392,14 @@ toPlot$gene_label <- factor(orf2name$gene_name[match(toPlot$knockout, orf2name$O
 
 
 p.pheno_geno <- ggplot(toPlot) +
-  geom_point(aes(x = pred, y = z_mean_value_BoxCox)) +
+  geom_point(aes(x = z_pred.untransformed, y = z_mean_value)) +
   geom_text(aes(label = paste("R2 =", format(r.squared,  digits = 2)), x = max2, y = max1), 
              data = toPlot.stats , vjust = "top", hjust = "right", parse = F) +
   geom_abline(intercept = 0, slope = 1) +
   # geom_text(data = toPlot, aes(label = met_label, x = z_pred.untransformed, y = z_mean_value),  
   #            check_overlap = T) +
-  ggrepel::geom_text_repel(data = toPlot, aes(label = met_label, x = pred, y = z_mean_value_BoxCox), 
-                   segment.alpha = 0.25, segment.size = 0.25) +
+  # ggrepel::geom_text_repel(data = toPlot, aes(label = met_label, x = pred, y = z_mean_value_BoxCox), 
+  #                  segment.alpha = 0.25, segment.size = 0.25) +
   facet_wrap(~ gene_label , scales = "free") + 
   theme_bw() + 
   labs(x = "Predicted, standartised value",
