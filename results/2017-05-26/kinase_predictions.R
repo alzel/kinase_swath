@@ -1,4 +1,5 @@
 rm(list = ls())
+library(caret)
 library(tidyverse)
 
 
@@ -98,15 +99,9 @@ my_means <- function(proteins.matrix) {
 load("./R/objects/proteins.matrix.combat.quant.RData")
 load("./R/objects/proteins.matrix.combat.RData")
 
-# proteins.log.quant = t(my_means(proteins.matrix.combat.quant))
-# proteins.raw = exp(t(my_means(proteins.matrix.combat)))
-# proteins.log = t(my_means(proteins.matrix.combat))
-
-
-proteins.log.quant = t(proteins.matrix.combat.quant)
+proteins.log.quant = t(my_means(proteins.matrix.combat.quant))
 proteins.raw = exp(t(my_means(proteins.matrix.combat)))
 proteins.log = t(my_means(proteins.matrix.combat))
-
 
 
 pattern.p = "data.(\\w+).(.*?).([1,3,5]+).([0-9]+).(\\w+).(\\w+).([pca.p]+).models.RData$"
@@ -292,32 +287,32 @@ metabolites.stats <- metabolites.long %>% filter(!is.na(value)) %>%
   dplyr::group_by(genotype) %>% 
   dplyr::summarise(n = n()) %>% arrange(desc(n)) %>% dplyr::mutate(rank = row_number(desc(n)))
 
-# metabolites.sumary <- metabolites.long %>% filter(!is.na(value)) %>%
-#   dplyr::group_by(dataset, metabolite) %>% 
-#   dplyr::mutate(lambda = forecast::BoxCox.lambda(value)) %>% 
-#   dplyr::mutate(value_BoxCox = forecast::BoxCox(value, lambda[1])) %>% 
-#   dplyr::group_by(dataset, genotype, metabolite) %>% 
-#   dplyr::summarise(mean_value = mean(value, na.rm = T),
-#                    mean_value_BoxCox = mean(value_BoxCox, na.rm = T)) %>% 
-#   dplyr::group_by(dataset, metabolite) %>% arrange(metabolite) %>% 
-#   dplyr::mutate(z_mean_value = (mean_value - mean(mean_value, na.rm = T))/sd(mean_value, na.rm = T),
-#                 z_mean_value_BoxCox = (mean_value_BoxCox - mean(mean_value_BoxCox, na.rm = T))/sd(mean_value_BoxCox, na.rm = T)) 
-# 
+metabolites.sumary <- metabolites.long %>% filter(!is.na(value)) %>%
+  dplyr::group_by(dataset, metabolite) %>%
+  dplyr::mutate(lambda = forecast::BoxCox.lambda(value)) %>%
+  dplyr::mutate(value_BoxCox = forecast::BoxCox(value, lambda[1])) %>%
+  dplyr::group_by(dataset, genotype, metabolite) %>%
+  dplyr::summarise(mean_value = mean(value, na.rm = T),
+                   mean_value_BoxCox = mean(value_BoxCox, na.rm = T)) %>%
+  dplyr::group_by(dataset, metabolite) %>% arrange(metabolite) %>%
+  dplyr::mutate(z_mean_value = (mean_value - mean(mean_value, na.rm = T))/sd(mean_value, na.rm = T),
+                z_mean_value_BoxCox = (mean_value_BoxCox - mean(mean_value_BoxCox, na.rm = T))/sd(mean_value_BoxCox, na.rm = T))
+
 
 
 metabolites.sumary <- metabolites.sumary %>% dplyr::rename(knockout = genotype)
 
 predicted_measured <- full_join(metabolites.sumary %>% ungroup(), model_predictions %>% ungroup(), 
-                                by = c("metabolite" = "metabolite", "knockout" = "knockout") ) %>% ungroup()
+                                by = c("metabolite" = "metabolite", "knockout" = "knockout", "dataset" = "dataset") ) %>% ungroup()
 
 
-tmp_df %>% filter(metabolite == "Acetyl.CoA")
-model_predictions %>% filter(metabolite == "Acetyl.CoA")
 
 predicted_measured <- predicted_measured %>% 
-  dplyr::group_by(metabolite, dataset.x) %>% arrange(knockout) %>% 
+  dplyr::group_by(metabolite, dataset) %>% arrange(knockout) %>% 
   dplyr::mutate(z_pred.untransformed = (pred.untransformed - mean(pred.untransformed, na.rm = T))/sd(pred.untransformed,na.rm = T)) 
 
+predicted_measured <- predicted_measured %>% ungroup() %>% 
+  mutate(rel_error = abs(mean_value - pred.untransformed)/mean_value)
 
 by_knockout <- predicted_measured %>% group_by(knockout) %>% 
   filter(!is.na(z_mean_value)) %>% 
@@ -343,8 +338,7 @@ model.stats <- by_knockout %>%
 
 selected_genotypes <- c("YBL088C","YBR097W","YDR122W","YDR477W","YDR490C","YGR188C","YHR079C","YHR082C","YIL042C")
 selected_genotypes <- (metabolites.stats %>% filter(rank <=100, genotype != "WT"))$genotype
-selected_genotypes <- (model.stats %>% filter(knockout != "WT", p.value < 0.05) %>% arrange(desc(r.squared)) %>% filter(row_number() <= 10))$knockout
-
+selected_genotypes <- (model.stats %>% filter(knockout != "WT") %>% arrange(desc(r.squared)) %>% filter(row_number() <= 30))$knockout
 
 toPlot <- predicted_measured %>% filter(knockout %in% selected_genotypes) %>% arrange(knockout)
 
@@ -355,25 +349,31 @@ toPlot$met_label <- metabolite2iMM904$model_name[match(toPlot$metabolite, metabo
 toPlot$gene_label <- factor(orf2name$gene_name[match(toPlot$knockout, orf2name$ORF)], levels = toPlot.stats$gene_label)
 
 
-
+cor(toPlot$pred, toPlot$z_mean_value_BoxCox, use="pairwise.complete.obs")
+stats = summary(lm(pred~z_mean_value_BoxCox, data = as.data.frame(toPlot)))
 
 p.pheno_geno <- ggplot(toPlot) +
-  geom_point(aes(x = pred, y = z_mean_value_BoxCox)) +
-  geom_text(aes(label = paste("R2 =", format(r.squared,  digits = 2)), x = max2, y = max1), 
-             data = toPlot.stats , vjust = "top", hjust = "right", parse = F) +
+  geom_jitter(aes(x = pred, y = z_mean_value_BoxCox), width = 0.25) +
+  # geom_text(aes(label = paste("R2 =", format(r.squared,  digits = 2)), x = max2, y = max1), 
+  #            data = toPlot.stats , vjust = "top", hjust = "right", parse = F) +
+  geom_text(aes(label = paste("R2 =", format(r.squared,  digits = 2)), x = -2, y = 2), 
+            data = stats %>% broom::glance() , vjust = "top", hjust = "right", parse = F) +
   geom_abline(intercept = 0, slope = 1) +
   # geom_text(data = toPlot, aes(label = met_label, x = z_pred.untransformed, y = z_mean_value),  
   #            check_overlap = T) +
-  ggrepel::geom_text_repel(data = toPlot, aes(label = met_label, x = pred, y = z_mean_value_BoxCox), 
-                   segment.alpha = 0.25, segment.size = 0.25) +
-  facet_wrap(~ gene_label , scales = "free") + 
+  #ggrepel::geom_text_repel(data = toPlot, aes(label = met_label, x = pred, y = z_mean_value_BoxCox),
+  #                 segment.alpha = 0.25, segment.size = 0.25) +
+  #facet_wrap(~ gene_label , scales = "free") + 
+  # geom_smooth(aes(x = pred, y = z_mean_value_BoxCox, color = gene_label), method='lm') +
   theme_bw() + 
+  ylim(-2,2) +
+  xlim(-2,2) +
   labs(x = "Predicted, standartised value",
        y = "Observed, standartised value")
 
 p.pheno_geno
+toPlot %>%
+  ggplot() +
+  geom_histogram(aes(x =rel_error)) +
+  theme_bw()
 
-
-predicted_measured %>% filter(knockout == "YKL025C") %>% 
-  ggplot(aes(z_mean_value, z_pred.untransformed)) +
-    geom_point()
