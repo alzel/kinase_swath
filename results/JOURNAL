@@ -5,3 +5,4 @@
 2015-10-01: getting out BRENDA to check whether predictors are saturated
 2015-12-05: making SWATH library (on CLuster) based on published protocol Nature Protocols 10, 426–441 (2015) doi:10.1038/nprot.2015.015 
 2017-02-22: performing metabolic control analysis (MCA)
+2017-05-26: removing one kinase sample and retraining models then predicting on the removed one the whole metabolomes
