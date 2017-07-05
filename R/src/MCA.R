@@ -6,6 +6,8 @@ library(ggthemes)
 library(forcats)
 library(stringr)
 library(grid)
+library(ggthemes)
+
 
 fun_name = "MCA"
 figures_dir = "./figures"
@@ -201,7 +203,7 @@ p.loadings_conc <-  ggplot(toPlot, aes(x = variable, y = value, fill = component
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   ggtitle("Steady-state concentrations")
 
-p.grid_conc <- plot_grid(p.scores_conc, p.loadings_conc, labels = c("A", "B"), align = "h" )
+p.grid_conc <- cowplot::plot_grid(p.scores_conc, p.loadings_conc, labels = c("A", "B"), align = "h" )
 p.grid_conc$landscape = T
 plots.list = lappend(plots.list, p.grid_conc)
 
@@ -230,7 +232,7 @@ p.loadings_fluxes <- toPlot %>% filter(component %in% c("PC1", "PC2")) %>%
     theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
     ggtitle("Steady-state fluxes")
 
-p.grid_fluxes <- plot_grid(p.scores_fluxes, p.loadings_fluxes, labels = c("A", "B"), align = "h")
+p.grid_fluxes <- cowplot::plot_grid(p.scores_fluxes, p.loadings_fluxes, labels = c("A", "B"), align = "h")
 p.grid_fluxes$landscape = T
 plots.list = lappend(plots.list, p.grid_fluxes)
 
@@ -256,8 +258,8 @@ toPlot <- dataset.mca %>% group_by(var_type, VAR, KO) %>%
   dplyr::select(var_type, VAR, KO, max_plot, min_plot ) %>% as.data.frame() %>%
   reshape2::melt(id.vars = c("var_type", "VAR", "KO"))
 
-toPlot %>% 
-p.min_max <- ggplot(aes(x = VAR, y = value)) +
+p.min_max <- toPlot %>% 
+    ggplot(aes(x = VAR, y = value)) +
     ylim(c(-3,3)) +
     geom_violin() +
     geom_jitter(aes(colour = variable), alpha = 0.3) +
@@ -311,11 +313,26 @@ CCflux_matrix <- dataset.mca %>% filter(var_type == "flux", VAR != "AK", !is.na(
 
 
 CCfluxes_pca <- prcomp(CCflux_matrix)
-cl <- cluster::pam(CCflux_matrix, 4)
+
+library(cluster)
+library(factoextra)
+library(NbClust)
+
+#cl <- cluster::pam(CCflux_matrix, 4)
+
+  
 
 toPlot <- CCfluxes_pca
+#decided based on graphical method of pca
+#res <- NbClust(toPlot$x[,c(1:10)],  distance = "euclidean", min.nc=2, max.nc=6, 
+#method = "ward.D", index = c("hubert", "dindex"))  
+
+cl = hcut(toPlot$x[,c(1:10)], hc_method = "ward.D2", k = 4, isdiss = F)
+cl$clustering <- cl$cluster
+
 xlabel <- paste("PC1", round(toPlot$sdev[1]/sum(toPlot$sdev),2))
 ylabel <- paste("PC2", round(toPlot$sdev[2]/sum(toPlot$sdev),2))
+
 
 
 p.scores_CCfluxes <- toPlot$x %>% as_tibble() %>% mutate(gene_name = exp_metadata$gene[match(rownames(toPlot$x), exp_metadata$ORF)],
@@ -347,7 +364,7 @@ p.loadings_FCC <-  ggplot(toPlot, aes(x = variable, y = value, fill = component)
   theme_bw(base_family = "Helvetica") +
   theme(legend.position = "none", panel.grid = element_blank())
 
-p.grid_FCC <- plot_grid(p.scores_CCfluxes, p.loadings_FCC, labels = c("A", "B"), align = "h" )
+p.grid_FCC <- cowplot::plot_grid(p.scores_CCfluxes, p.loadings_FCC, labels = c("A", "B"), align = "h" )
 p.grid_conc$landscape = T
 plots.list = lappend(plots.list, p.grid_conc)
 plots.list = lappend(plots.list, p.scores_CCfluxes)
@@ -641,6 +658,84 @@ library("gridExtra")
 p <- tableGrob(stats_table)
 p$landscape = T
 plots.list = lappend(plots.list, p)
+
+
+## ---- SS correlation with measurements ----
+
+dataset.ss <- read_delim("./results/2017-02-22/ss_fluxes_concentrations_in_kinase_KOs.csv", delim = "\t")
+
+dataset.ss_conc <- dataset.ss %>% filter(type == "conc", ss_status < 1e-6)
+
+load("./R/objects/dataPPP_AA.create_datasets.RData")
+load("./R/objects/dataTCA.create_datasets.RData")
+
+dataset_metabolites <- dataPPP_AA$metabolites %>% reshape2::melt(id.vars = rownames())
+#dataset_metabolites <- dataTCA$metabolites %>% reshape2::melt(id.vars = rownames())
+
+
+# names(dataset_metabolites) <- c("sample", "metabolite", "conc")
+# 
+# 
+# dataset_metabolites$KO <- exp_metadata$ORF[match(dataset_metabolites$sample, exp_metadata$sample_name)]
+
+
+
+
+names(dataset_metabolites) <- c("KO", "metabolite", "conc")
+
+dataset_metabolites$gene_name <- as.character(exp_metadata$gene[match(dataset_metabolites$KO, exp_metadata$ORF)])
+
+
+
+model2metabolite <- data.frame(model_name =     c("GLC", "G6P", "F6P", "F16bP",      "GAP", "DHAP", "BPG", "P3G",      "P2G", "PEP",     "PYR", "AcAld", "G1P", "G3P", "UDP", "UTP", "T6P", "ADP", "ATP", "NAD"),
+                              metabolite_name = c(NA, "G6P...F6P", "F6P", "X1.6.FP.", NA, "DHAP", NA, "X2...3.PG", "X2...3.PG", "PEP", "Pyr", NA,      NA,    "G3P",    NA,    NA ,     NA,  "ADP", "ATP", NA), stringsAsFactors = F)
+
+
+# model2metabolite <- data.frame(model_name =     c("GLC", "G6P", "F6P", "F16bP",      "GAP", "DHAP", "BPG", "P3G",      "P2G", "PEP",     "PYR", "AcAld", "G1P", "G3P", "UDP", "UTP", "T6P", "ADP", "ATP", "NAD"),
+#                                metabolite_name = c(NA, "G6P...F6P", "F6P", "X1.6.FP.", "G3P", "DHAP", NA, "X2...3.PG", "X2...3.PG", "PEP", "Pyr", NA,      NA,    NA,    NA,    NA ,     NA,  "ADP", "ATP", NA), stringsAsFactors = F)
+
+
+dataset.ss_conc$metabolite <- model2metabolite$metabolite_name[match(dataset.ss_conc$variable, model2metabolite$model_name)]
+
+dataset <- left_join(dataset.ss_conc, dataset_metabolites, by = c("metabolite", "KO"))
+
+dataset <- dataset %>% group_by(variable) %>% 
+                          mutate(z_value = (value - mean(value, na.rm = T))/sd(value, na.rm = T),
+                                 z_conc = (conc - mean(conc, na.rm = T))/sd(conc, na.rm = T))
+
+
+
+toPlot <- dataset %>% group_by(KO) %>%
+  mutate(cor = cor(z_value, z_conc, use = "pairwise.complete.obs")) %>% ungroup()
+
+p.ss_cor_density <- toPlot %>%
+  ggplot(aes(x = cor))+
+    geom_density( fill = "black") +
+    theme_bw(base_family = "Helvetica") +
+    theme(aspect.ratio = 5/8) +
+    theme(panel.grid = element_blank())
+
+toPlot <- toPlot %>%
+  filter(dense_rank(-cor) <= 10)
+  
+stats = with(toPlot, cor.test(z_value, z_conc, use = "pairwise.complete.obs"))  
+
+toPlot.stats <- data.frame(x = -2, 
+                           y = 2, 
+                           label = paste( "r = ", round(stats$estimate,2),"\n",   "p-value = ", format(stats$p.value, digits = 2, scientific = T), sep = ""))
+
+p.ss_cor <- toPlot %>%
+  filter(!is.na(z_conc), !is.na(z_value)) %>% 
+  ggplot(aes(x = z_value, y = z_conc)) +
+    geom_point(aes(colour = variable)) +
+    geom_smooth(method = "lm") +
+    geom_text(data = toPlot.stats, aes(x = x, y = y , label = label)) +
+    theme_bw(base_family = "Helvetica") +
+    theme(aspect.ratio = 5/8, legend.position = "none") +
+    theme(panel.grid = element_blank()) +
+    xlab("Predicted metabolite concentration based on ODE model, standartized value") +
+    ylab("Experimetnaly measured metabolite 
+         concentration, standartized value")
 
 
 ## ----- figure version 1 --------
